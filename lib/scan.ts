@@ -179,6 +179,18 @@ async function detectDocumentCornersLegacy(url: string): Promise<DetectionResult
 
 export type DetectedLine = { a: number; b: number; c: number; score: number };
 
+export function scoreDocumentBoundary(rawScore: number, positionRatio: number, insideLuminance: number, outsideLuminance: number) {
+  // Camera frames, table seams and book borders frequently form stronger lines
+  // than the paper itself. Lines very close to the image boundary therefore
+  // need stronger evidence before they can be treated as document edges.
+  const edgeDistance = Math.min(positionRatio, 1 - positionRatio);
+  const insetWeight = .4 + .6 * Math.min(1, Math.max(0, edgeDistance) / .1);
+  // A normal sheet is usually brighter immediately inside its edge. Keep a
+  // small neutral floor so coloured/dark documents are still detectable.
+  const paperContrast = Math.max(-.15, Math.min(.65, (insideLuminance - outsideLuminance) / 45));
+  return rawScore * insetWeight * (.82 + paperContrast);
+}
+
 export function intersectLines(first: DetectedLine, second: DetectedLine): Point | null {
   const determinant = first.a * second.b - second.a * first.b;
   if (Math.abs(determinant) < .08) return null;
@@ -224,6 +236,34 @@ export async function detectDocumentCorners(url: string): Promise<DetectionResul
 
   const diagonal = Math.ceil(Math.hypot(canvas.width, canvas.height));
   const sampleStep = Math.max(1, Math.ceil(edges.length / 14000));
+  const boundaryLuminance = (line: Pick<DetectedLine, "a" | "b" | "c">, orientation: "vertical" | "horizontal") => {
+    const centerSide = Math.sign(line.a * canvas.width / 2 + line.b * canvas.height / 2 - line.c) || 1;
+    const offset = Math.max(3, Math.round(Math.min(canvas.width, canvas.height) * .012));
+    let inside = 0, outside = 0, count = 0;
+    const samples = 36;
+    for (let sample = 2; sample < samples - 2; sample++) {
+      let x: number, y: number;
+      if (orientation === "vertical") {
+        y = sample / (samples - 1) * (canvas.height - 1);
+        if (Math.abs(line.a) < .08) continue;
+        x = (line.c - line.b * y) / line.a;
+      } else {
+        x = sample / (samples - 1) * (canvas.width - 1);
+        if (Math.abs(line.b) < .08) continue;
+        y = (line.c - line.a * x) / line.b;
+      }
+      const insideX = Math.round(x + line.a * centerSide * offset);
+      const insideY = Math.round(y + line.b * centerSide * offset);
+      const outsideX = Math.round(x - line.a * centerSide * offset);
+      const outsideY = Math.round(y - line.b * centerSide * offset);
+      if (insideX < 0 || insideX >= canvas.width || insideY < 0 || insideY >= canvas.height
+        || outsideX < 0 || outsideX >= canvas.width || outsideY < 0 || outsideY >= canvas.height) continue;
+      inside += luminance[insideY * canvas.width + insideX];
+      outside += luminance[outsideY * canvas.width + outsideX];
+      count++;
+    }
+    return count ? { inside: inside / count, outside: outside / count } : { inside: 128, outside: 128 };
+  };
   const findPair = (angles: number[], orientation: "vertical" | "horizontal") => {
     let low: DetectedLine | null = null;
     let high: DetectedLine | null = null;
@@ -245,8 +285,12 @@ export async function detectDocumentCorners(url: string): Promise<DetectionResul
         const size = orientation === "vertical" ? canvas.width : canvas.height;
         if (!Number.isFinite(position) || position < size * .015 || position > size * .985) continue;
         if (position > size * .47 && position < size * .53) continue;
-        const outward = Math.abs(position / size - .5) * 2;
-        const line = { a, b, c, score: accumulator[rhoIndex] * (.72 + .28 * outward) };
+        const provisional = { a, b, c };
+        const tones = boundaryLuminance(provisional, orientation);
+        const line = {
+          ...provisional,
+          score: scoreDocumentBoundary(accumulator[rhoIndex], position / size, tones.inside, tones.outside),
+        };
         if (position < size / 2 && (!low || line.score > low.score)) low = line;
         if (position > size / 2 && (!high || line.score > high.score)) high = line;
       }
@@ -287,11 +331,117 @@ export function canvasFilter(settings: ScanSettings) {
   return `grayscale(${1 - saturation}) contrast(${contrast}%) brightness(${brightness}%)`;
 }
 
+export function correctShadowChannel(original: number, localPaper: number, shadowStrength: number) {
+  const paper = Math.max(18, localPaper);
+  const ratioCorrected = original * 242 / paper;
+  const additiveCorrected = original + (242 - paper);
+  // Multiplication works for ordinary gradients; additive correction is needed
+  // for deep phone/camera shadows where near-black pixels cannot recover by
+  // multiplication alone. Both preserve the local ink-to-paper difference.
+  const deepShadow = Math.max(0, Math.min(1, (225 - paper) / 110));
+  const corrected = ratioCorrected * (1 - deepShadow) + additiveCorrected * deepShadow;
+  return original * (1 - shadowStrength) + corrected * shadowStrength;
+}
+
+export function protectInkFromShadowRemoval(shadowStrength: number, centerLuminance: number, neighborLuminance: number) {
+  const detailContrast = neighborLuminance - centerLuminance;
+  const inkEvidence = Math.max(0, Math.min(.92, (detailContrast - 12) / 42));
+  return shadowStrength * (1 - inkEvidence);
+}
+
+export function shouldPreserveDocumentColor(red: number, green: number, blue: number) {
+  const maximum = Math.max(red, green, blue);
+  const chroma = maximum - Math.min(red, green, blue);
+  return chroma >= 28 && chroma / Math.max(1, maximum) >= .18;
+}
+
+export function isDarkInkOnColoredSurface(
+  red: number, green: number, blue: number,
+  surfaceRed: number, surfaceGreen: number, surfaceBlue: number,
+) {
+  const inkLuminance = red * .299 + green * .587 + blue * .114;
+  const surfaceLuminance = surfaceRed * .299 + surfaceGreen * .587 + surfaceBlue * .114;
+  const surfaceChroma = Math.max(surfaceRed, surfaceGreen, surfaceBlue) - Math.min(surfaceRed, surfaceGreen, surfaceBlue);
+  return surfaceChroma >= 24 && inkLuminance <= 155 && surfaceLuminance - inkLuminance >= 14;
+}
+
+export function restoreColoredSurfaceChannel(channel: number, surfaceLuminance: number, lift: number) {
+  const restoredLuminance = Math.min(190, surfaceLuminance * 1.08 + Math.max(0, lift) * .12);
+  return channel * restoredLuminance / Math.max(1, surfaceLuminance);
+}
+
+export function estimateDocumentShadowSeverity(background: Uint8ClampedArray) {
+  const neutralLuminance: number[] = [];
+  for (let i = 0; i < background.length; i += 4) {
+    const red = background[i], green = background[i + 1], blue = background[i + 2];
+    if (Math.max(red, green, blue) - Math.min(red, green, blue) > 22) continue;
+    neutralLuminance.push(red * .299 + green * .587 + blue * .114);
+  }
+  if (neutralLuminance.length < 16) return 0;
+  const darkPaper = percentile(neutralLuminance, .08);
+  const normalPaper = percentile(neutralLuminance, .62);
+  // A clean scan can contain black text and coloured table cells, but after the
+  // background blur those details occupy little of the neutral paper map. A
+  // real phone/hand shadow creates a broad low-frequency luminance gap.
+  const absoluteDarkness = Math.max(0, (188 - darkPaper) / 105);
+  const unevenness = Math.max(0, (normalPaper - darkPaper - 38) / 105);
+  return Math.max(0, Math.min(1, Math.max(absoluteDarkness, unevenness)));
+}
+
+function enhanceCleanDocumentClassic(canvas: HTMLCanvasElement, settings: ScanSettings) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return;
+  const mapWidth = Math.min(96, canvas.width);
+  const mapHeight = Math.max(1, Math.round(canvas.height / Math.max(canvas.width, 1) * mapWidth));
+  const reduced = document.createElement("canvas");
+  reduced.width = mapWidth; reduced.height = mapHeight;
+  const reducedCtx = reduced.getContext("2d");
+  if (!reducedCtx) return;
+  reducedCtx.imageSmoothingEnabled = true;
+  reducedCtx.imageSmoothingQuality = "high";
+  reducedCtx.drawImage(canvas, 0, 0, mapWidth, mapHeight);
+  const background = document.createElement("canvas");
+  background.width = mapWidth; background.height = mapHeight;
+  const backgroundCtx = background.getContext("2d", { willReadFrequently: true });
+  if (!backgroundCtx) return;
+  backgroundCtx.filter = `blur(${Math.max(3, Math.round(mapWidth / 24))}px)`;
+  backgroundCtx.drawImage(reduced, 0, 0);
+  backgroundCtx.filter = "none";
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = image.data;
+  const map = backgroundCtx.getImageData(0, 0, mapWidth, mapHeight).data;
+  const shadowStrength = Math.min(1, .62 + settings.removeShadow / 90);
+  const contrast = 1.12 + settings.contrast / 160;
+  const whitePoint = 242 - settings.whiten * .22;
+  const lift = settings.brightness * .55 + settings.whiten * .32;
+  for (let y = 0; y < canvas.height; y++) {
+    const mapY = Math.min(mapHeight - 1, Math.round(y / Math.max(canvas.height - 1, 1) * (mapHeight - 1)));
+    for (let x = 0; x < canvas.width; x++) {
+      const i = (y * canvas.width + x) * 4;
+      const mapX = Math.min(mapWidth - 1, Math.round(x / Math.max(canvas.width - 1, 1) * (mapWidth - 1)));
+      const mi = (mapY * mapWidth + mapX) * 4;
+      for (let channel = 0; channel < 3; channel++) {
+        const original = pixels[i + channel];
+        const localPaper = Math.max(36, map[mi + channel]);
+        const divided = original * 248 / localPaper;
+        const balanced = original * (1 - shadowStrength) + divided * shadowStrength;
+        const value = (balanced - 210) * contrast + 226 + lift;
+        pixels[i + channel] = value >= whitePoint ? 255 : Math.max(0, Math.min(255, value));
+      }
+      pixels[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 function enhanceDocument(canvas: HTMLCanvasElement, settings: ScanSettings) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
 
-  const mapWidth = Math.min(96, canvas.width);
+  // Keep enough spatial detail to capture narrow phone/hand shadows. At this
+  // scale a 3px blur removes glyphs but does not average a dark shadow into the
+  // surrounding white sheet as the old 96px map did.
+  const mapWidth = Math.min(384, canvas.width);
   const mapHeight = Math.max(1, Math.round(canvas.height / Math.max(canvas.width, 1) * mapWidth));
   const reduced = document.createElement("canvas");
   reduced.width = mapWidth;
@@ -309,13 +459,23 @@ function enhanceDocument(canvas: HTMLCanvasElement, settings: ScanSettings) {
   background.height = mapHeight;
   const backgroundCtx = background.getContext("2d", { willReadFrequently: true });
   if (!backgroundCtx) return;
-  backgroundCtx.filter = `blur(${Math.max(3, Math.round(mapWidth / 24))}px)`;
+  backgroundCtx.filter = `blur(${Math.max(4, Math.round(mapWidth / 96))}px)`;
   backgroundCtx.drawImage(reduced, 0, 0);
   backgroundCtx.filter = "none";
 
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const pixels = image.data;
+  const sourcePixels = new Uint8ClampedArray(pixels);
   const map = backgroundCtx.getImageData(0, 0, mapWidth, mapHeight).data;
+  const shadowSeverity = estimateDocumentShadowSeverity(map);
+  // Ordinary phone illumination (including the reference blue-table page) can
+  // score around .55 and is handled better by the classic 96px background map.
+  // Reserve the aggressive branch for genuinely severe/localized shadows.
+  const needsDeepShadowRemoval = shadowSeverity >= .68;
+  if (!needsDeepShadowRemoval) {
+    enhanceCleanDocumentClassic(canvas, settings);
+    return false;
+  }
   const shadowStrength = Math.min(1, .62 + settings.removeShadow / 90);
   const contrast = 1.12 + settings.contrast / 160;
   const whitePoint = 242 - settings.whiten * .22;
@@ -328,19 +488,55 @@ function enhanceDocument(canvas: HTMLCanvasElement, settings: ScanSettings) {
       const mapX = Math.min(mapWidth - 1, Math.round(x / Math.max(canvas.width - 1, 1) * (mapWidth - 1)));
       const mi = (mapY * mapWidth + mapX) * 4;
 
-      for (let channel = 0; channel < 3; channel++) {
-        const original = pixels[i + channel];
-        const localPaper = Math.max(36, map[mi + channel]);
-        const divided = original * 248 / localPaper;
-        const balanced = original * (1 - shadowStrength) + divided * shadowStrength;
-        let value = (balanced - 210) * contrast + 226 + lift;
-        if (value >= whitePoint) value = 255;
-        pixels[i + channel] = Math.max(0, Math.min(255, value));
+      const originalRed = sourcePixels[i], originalGreen = sourcePixels[i + 1], originalBlue = sourcePixels[i + 2];
+
+      const originalLuminance = originalRed * .299 + originalGreen * .587 + originalBlue * .114;
+      const preserveColour = shouldPreserveDocumentColor(originalRed, originalGreen, originalBlue);
+      let neighborLuminance = 0, neighborCount = 0;
+      for (const [dx, dy] of [[-4, 0], [4, 0], [0, -4], [0, 4]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= canvas.width || ny < 0 || ny >= canvas.height) continue;
+        const ni = (ny * canvas.width + nx) * 4;
+        neighborLuminance += sourcePixels[ni] * .299 + sourcePixels[ni + 1] * .587 + sourcePixels[ni + 2] * .114;
+        neighborCount++;
+      }
+      neighborLuminance /= Math.max(1, neighborCount);
+      const protectedShadowStrength = protectInkFromShadowRemoval(shadowStrength, originalLuminance, neighborLuminance);
+      const corrected = [0, 0, 0];
+
+      if (preserveColour) {
+        // Correct only luminance for coloured cells, stamps and highlights. A
+        // common RGB scale keeps their hue instead of bleaching them to white.
+        const localLuminance = map[mi] * .299 + map[mi + 1] * .587 + map[mi + 2] * .114;
+        const balancedLuminance = correctShadowChannel(originalLuminance, localLuminance, protectedShadowStrength);
+        const targetLuminance = Math.max(0, Math.min(235, (balancedLuminance - 210) * contrast + 226 + lift));
+        // The reference scan keeps the blue cell deep rather than turning it
+        // into bright cyan. Coloured regions therefore receive only a modest
+        // exposure lift; neutral paper still uses the full cleaning pipeline.
+        const colourScale = Math.min(1.3, targetLuminance / Math.max(1, originalLuminance));
+        corrected[0] = Math.min(255, originalRed * colourScale);
+        corrected[1] = Math.min(255, originalGreen * colourScale);
+        corrected[2] = Math.min(255, originalBlue * colourScale);
+      } else {
+        for (let channel = 0; channel < 3; channel++) {
+          const original = sourcePixels[i + channel];
+          const localPaper = map[mi + channel];
+          const balanced = correctShadowChannel(original, localPaper, protectedShadowStrength);
+          const value = (balanced - 210) * contrast + 226 + lift;
+          corrected[channel] = Math.max(0, Math.min(255, value));
+        }
+      }
+      const correctedLuminance = corrected[0] * .299 + corrected[1] * .587 + corrected[2] * .114;
+      if (!preserveColour && correctedLuminance >= whitePoint) {
+        pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
+      } else {
+        pixels[i] = corrected[0]; pixels[i + 1] = corrected[1]; pixels[i + 2] = corrected[2];
       }
       pixels[i + 3] = 255;
     }
   }
   ctx.putImageData(image, 0, 0);
+  return true;
 }
 
 function convertToGrayscale(canvas: HTMLCanvasElement) {
@@ -414,7 +610,7 @@ function warpPerspective(source: HTMLCanvasElement, corners: Corners, maxEdge: n
     const sourcePoint = (u: number, v: number) => { const p = projectUnitToQuad(corners, u, v); return { x: p.x * source.width, y: p.y * source.height }; };
     const s00 = sourcePoint(u0, v0), s10 = sourcePoint(u1, v0), s11 = sourcePoint(u1, v1), s01 = sourcePoint(u0, v1);
     const d00 = { x: u0 * width, y: v0 * height }, d10 = { x: u1 * width, y: v0 * height }, d11 = { x: u1 * width, y: v1 * height }, d01 = { x: u0 * width, y: v1 * height };
-    transformTriangle([s00, s10, s11], [d00, d10, d11]); transformTriangle([s00, s11, s01], [d00, d11, d01]);
+  transformTriangle([s00, s10, s11], [d00, d10, d11]); transformTriangle([s00, s11, s01], [d00, d11, d01]);
   }
   return output;
 }
@@ -422,7 +618,7 @@ function warpPerspective(source: HTMLCanvasElement, corners: Corners, maxEdge: n
 const skewAngleCache = new Map<string, number>();
 const curvatureCache = new Map<string, number[] | null>();
 
-function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string) {
+function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string): number[] | null {
   if (curvatureCache.has(cacheKey)) return curvatureCache.get(cacheKey) ?? null;
   const scale = Math.min(1, 560 / Math.max(canvas.width, canvas.height));
   const sample = document.createElement("canvas");
@@ -435,7 +631,7 @@ function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string) {
   const gray = new Float32Array(sample.width * sample.height);
   for (let i = 0, pixel = 0; i < pixels.length; i += 4, pixel++) gray[pixel] = pixels[i] * .299 + pixels[i + 1] * .587 + pixels[i + 2] * .114;
 
-  const stripCount = Math.max(16, Math.min(28, Math.round(sample.width / 18)));
+  const stripCount = 24;
   const profiles = Array.from({ length: stripCount }, () => new Float32Array(sample.height));
   const global = new Float32Array(sample.height);
   for (let strip = 0; strip < stripCount; strip++) {
@@ -452,17 +648,14 @@ function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string) {
     }
   }
 
-  // Smooth away individual glyph noise while retaining text baselines and long
-  // table rules, which are the best cues for cylindrical page curvature.
   const smooth = (profile: Float32Array) => {
     const result = new Float32Array(profile.length);
     for (let y = 2; y < profile.length - 2; y++) result[y] = (profile[y - 2] + 2 * profile[y - 1] + 3 * profile[y] + 2 * profile[y + 1] + profile[y + 2]) / 9;
     return result;
   };
   const smoothGlobal = smooth(global);
-  const maxShift = Math.max(3, Math.min(18, Math.round(sample.height * .035)));
+  const maxShift = Math.max(4, Math.min(24, Math.round(sample.height * .045)));
   const rawOffsets: number[] = [];
-  let usefulStrips = 0, gainSum = 0;
   for (const originalProfile of profiles) {
     const profile = smooth(originalProfile);
     const start = Math.max(maxShift + 2, Math.round(sample.height * .06));
@@ -472,7 +665,10 @@ function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string) {
     meanProfile /= Math.max(1, end - start); meanGlobal /= Math.max(1, end - start);
     const score = (shift: number) => {
       let value = 0;
-      for (let y = start; y < end; y++) value += (profile[y + shift] - meanProfile) * (smoothGlobal[y] - meanGlobal);
+      for (let y = start; y < end; y++) {
+        const py = Math.max(0, Math.min(sample.height - 1, y + shift));
+        value += (profile[py] - meanProfile) * (smoothGlobal[y] - meanGlobal);
+      }
       return value;
     };
     const zeroScore = score(0);
@@ -482,21 +678,54 @@ function estimatePageCurvature(canvas: HTMLCanvasElement, cacheKey: string) {
       if (candidate > bestScore) { bestScore = candidate; bestShift = shift; }
     }
     rawOffsets.push(bestShift);
-    if (zeroScore > 0 && bestScore > zeroScore * 1.015) { usefulStrips++; gainSum += bestScore / zeroScore; }
   }
-  const sorted = [...rawOffsets].sort((first, second) => first - second);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  let offsets = rawOffsets.map((value) => value - median);
-  for (let pass = 0; pass < 3; pass++) offsets = offsets.map((value, index, values) => {
-    const previous = values[Math.max(0, index - 1)], next = values[Math.min(values.length - 1, index + 1)];
-    return previous * .25 + value * .5 + next * .25;
-  });
-  const amplitude = Math.max(...offsets) - Math.min(...offsets);
-  const confident = usefulStrips >= Math.ceil(stripCount * .28) && gainSum / Math.max(1, usefulStrips) > 1.02 && amplitude >= 1.2;
-  const normalized = confident ? offsets.map((value) => value / sample.height) : null;
+
+  const N = rawOffsets.length;
+  const S0 = N;
+  let S4 = 0, S2 = 0, T2 = 0, T1 = 0, T0 = 0;
+  for (let i = 0; i < N; i++) {
+    const t = (2 * i) / (N - 1) - 1;
+    const y = rawOffsets[i];
+    const t2 = t * t;
+    S4 += t2 * t2;
+    S2 += t2;
+    T2 += t2 * y;
+    T1 += t * y;
+    T0 += y;
+  }
+  const det = S4 * S0 - S2 * S2;
+  let a = 0, b = 0, c = 0;
+  if (Math.abs(det) > 1e-5) {
+    a = (T2 * S0 - T0 * S2) / det;
+    c = (S4 * T0 - S2 * T2) / det;
+    b = T1 / Math.max(1e-5, S2);
+  }
+
+  const fitted: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const t = (2 * i) / (N - 1) - 1;
+    fitted.push((a * t * t + b * t + c) / sample.height);
+  }
+
+  // Verify Quality of Parabolic Fit (R^2) & Curvature Magnitude (|a|)
+  let SStot = 0, SSres = 0;
+  const meanY = rawOffsets.reduce((sum, v) => sum + v, 0) / N;
+  for (let i = 0; i < N; i++) {
+    const t = (2 * i) / (N - 1) - 1;
+    const yFitted = a * t * t + b * t + c;
+    SSres += (rawOffsets[i] - yFitted) ** 2;
+    SStot += (rawOffsets[i] - meanY) ** 2;
+  }
+  const rSquared = SStot > 1e-4 ? 1 - (SSres / SStot) : 0;
+  const curveMagnitude = Math.abs(a);
+
+  // Accept parabolic dewarp ONLY when document displays a true physical parabolic curve (R^2 >= 0.55 and |a| >= 1.8px on sample)
+  const isValidPhysicalCurve = rSquared >= 0.55 && curveMagnitude >= 1.8;
+  const result = isValidPhysicalCurve ? fitted : null;
+
   if (curvatureCache.size >= 40) curvatureCache.delete(curvatureCache.keys().next().value!);
-  curvatureCache.set(cacheKey, normalized);
-  return normalized;
+  curvatureCache.set(cacheKey, result);
+  return result;
 }
 
 function flattenCurvedPage(canvas: HTMLCanvasElement, cacheKey: string) {
@@ -511,18 +740,29 @@ function flattenCurvedPage(canvas: HTMLCanvasElement, cacheKey: string) {
   ctx.fillRect(0, 0, output.width, output.height);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  const slices = Math.min(canvas.width, 120);
+
+  const meanOffset = offsets.reduce((sum, v) => sum + v, 0) / offsets.length;
+  const slices = Math.min(canvas.width, 160);
+
   for (let slice = 0; slice < slices; slice++) {
-    const x0 = Math.floor(slice * canvas.width / slices);
-    const x1 = Math.ceil((slice + 1) * canvas.width / slices);
-    const position = (slice + .5) / slices * (offsets.length - 1);
-    const left = Math.floor(position), right = Math.min(offsets.length - 1, left + 1);
+    const u0 = slice / slices;
+    const u1 = (slice + 1) / slices;
+    const x0 = Math.floor(u0 * canvas.width);
+    const x1 = Math.ceil(u1 * canvas.width);
+
+    const position = (slice + 0.5) / slices * (offsets.length - 1);
+    const left = Math.floor(position);
+    const right = Math.min(offsets.length - 1, left + 1);
     const blend = position - left;
-    const offset = (offsets[left] * (1 - blend) + offsets[right] * blend) * canvas.height;
-    const overlap = 1;
+
+    const normOffset = (offsets[left] * (1 - blend) + offsets[right] * blend) - meanOffset;
+    const pixelOffset = Math.max(-canvas.height * 0.05, Math.min(canvas.height * 0.05, normOffset * canvas.height));
+
+    const overlap = 1.5;
     const sourceX = Math.max(0, x0 - overlap);
     const width = Math.min(canvas.width, x1 + overlap) - sourceX;
-    ctx.drawImage(canvas, sourceX, 0, width, canvas.height, sourceX, -offset, width, canvas.height);
+
+    ctx.drawImage(canvas, sourceX, 0, width, canvas.height, sourceX, -pixelOffset, width, canvas.height);
   }
   return output;
 }
@@ -611,7 +851,12 @@ function straightenText(canvas: HTMLCanvasElement, cacheKey: string, fineRotatio
   return output;
 }
 
-function sharpenCanvas(canvas: HTMLCanvasElement, amount: number) {
+export function sharpenChannel(original: number, highPass: number, strength: number, darkOnly: boolean) {
+  const sharpened = original * (1 - strength) + highPass * strength;
+  return darkOnly ? Math.min(original, sharpened) : sharpened;
+}
+
+function sharpenCanvas(canvas: HTMLCanvasElement, amount: number, darkOnly = false) {
   if (amount <= 0) return;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
@@ -623,7 +868,7 @@ function sharpenCanvas(canvas: HTMLCanvasElement, amount: number) {
     for (let c = 0; c < 3; c++) {
       const center = src[i + c] * 5;
       const neighbors = src[i - 4 + c] + src[i + 4 + c] + src[i - canvas.width * 4 + c] + src[i + canvas.width * 4 + c];
-      image.data[i + c] = src[i + c] * (1 - strength) + (center - neighbors) * strength;
+      image.data[i + c] = sharpenChannel(src[i + c], center - neighbors, strength, darkOnly);
     }
   }
   ctx.putImageData(image, 0, 0);
@@ -753,12 +998,12 @@ export async function renderPage(page: ScanPage, maxEdge = 2400): Promise<HTMLCa
     enhanceDocument(canvas, page.settings);
     binaryBlackWhite(canvas, page.settings);
   } else if (page.settings.filter === "grayscale") {
-    enhanceDocument(canvas, page.settings);
+    const deepShadowProfile = enhanceDocument(canvas, page.settings);
     convertToGrayscale(canvas);
-    sharpenCanvas(canvas, page.settings.sharpen);
+    sharpenCanvas(canvas, page.settings.sharpen, deepShadowProfile);
   } else if (page.settings.filter === "enhanced") {
-    enhanceDocument(canvas, page.settings);
-    sharpenCanvas(canvas, page.settings.sharpen);
+    const deepShadowProfile = enhanceDocument(canvas, page.settings);
+    sharpenCanvas(canvas, page.settings.sharpen, deepShadowProfile);
   } else {
     normalizeIllumination(canvas, page.settings.removeShadow);
     sharpenCanvas(canvas, page.settings.sharpen);

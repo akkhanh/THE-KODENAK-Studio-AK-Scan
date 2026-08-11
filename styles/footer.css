@@ -1,0 +1,26 @@
+/* Mini Footer */
+.mini-footer {
+  margin-top: auto;
+  background: #ffffff;
+  border-top: 1px solid var(--color-rule);
+  padding: 1.25rem var(--space-lg);
+  text-align: center;
+}
+
+.mini-footer p {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.84rem;
+}
+
+.mini-footer strong {
+  color: var(--color-ink);
+  font-weight: 700;
+}
+
+.mini-footer span {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+/* Responsive Media Queries */

@@ -1,40 +1,30 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle, Camera, ChevronLeft, ChevronRight, Crop, Download, Eye, FileImage, FileText, GripVertical, ImagePlus, LoaderCircle, LockKeyhole, RotateCw, ScanLine, ScanSearch, ShieldCheck, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { AlertTriangle, Crop, Download, Eye, FileText, ImagePlus, LoaderCircle, RotateCw, ScanLine, ScanSearch, SlidersHorizontal } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { analyzeImageQuality, defaultCorners, defaultSettings, detectDocumentCorners, detectTableGrid, FilterName, renderPage, ScanPage } from "@/lib/scan";
 import { ScanPreview } from "./scan-preview";
 import { ExportDialog, ExportOptions } from "./export-dialog";
 import { HomeGuide } from "./home-guide";
+import { DonateWidget } from "./donate-widget";
+import { AppFooter } from "./app-footer";
+import { AppHeader } from "./app-header";
+import { HomeUpload } from "./home-upload";
+import { SortablePage } from "./sortable-page";
 import { detectUploadKind, safeDisplayName, sanitizeDocumentText, withTimeout } from "@/lib/upload-security";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_PDF_BYTES = 40 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 24_000_000;
 const MAX_SESSION_PIXELS = 160_000_000;
-const PDF_RENDER_MAX_EDGE = 2800;
 
 const filters: Array<{ id: FilterName; label: string }> = [
   { id: "original", label: "Ảnh gốc" }, { id: "enhanced", label: "Tăng cường" },
   { id: "grayscale", label: "Xám" }, { id: "bw", label: "Trắng đen" }
 ];
-
-function SortablePage({ page, active, index, last, onSelect, onDelete, onMove }: { page: ScanPage; active: boolean; index: number; last: boolean; onSelect: () => void; onDelete: () => void; onMove: (delta: number) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: page.id });
-  return <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`page-row ${active ? "active" : ""}`}>
-    <button className="drag-handle" aria-label={`Kéo để sắp xếp trang ${index + 1}`} {...attributes} {...listeners}><GripVertical size={17} /></button>
-    <button className="page-select" onClick={onSelect} aria-current={active ? "page" : undefined}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- Blob URL cục bộ không phù hợp với next/image. */}
-      <img src={page.url} alt="" />
-      <span><strong>Trang {index + 1}</strong><small title={page.qualityWarning ?? page.name}>{page.qualityWarning ? <><AlertTriangle size={12} /> {page.qualityWarning}</> : page.name}</small></span>
-    </button>
-    <div className="page-actions"><button onClick={() => onMove(-1)} disabled={index === 0} aria-label="Chuyển trang lên"><ChevronLeft size={15} /></button><button onClick={() => onMove(1)} disabled={last} aria-label="Chuyển trang xuống"><ChevronRight size={15} /></button><button onClick={onDelete} aria-label={`Xóa trang ${index + 1}`}><X size={15} /></button></div>
-  </li>;
-}
 
 export function ScanWorkspace() {
   const [pages, setPages] = useState<ScanPage[]>([]);
@@ -76,17 +66,14 @@ export function ScanWorkspace() {
     if (await detectUploadKind(file) !== "pdf") throw new Error(`${name}: nội dung file không phải PDF hợp lệ.`);
     if (!file.size || file.size > MAX_PDF_BYTES) throw new Error(`${name}: PDF phải nhỏ hơn 40 MB.`);
     const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/pdf.worker.min.mjs`;
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
     const pdf = await withTimeout(loadingTask.promise, 30_000, `${name}: PDF mất quá nhiều thời gian để mở.`).catch(async (error) => { await loadingTask.destroy(); throw error; });
     const results: Array<{ url: string; width: number; height: number; name: string; embeddedText?: string }> = [];
     try { for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, limit); pageNumber++) {
       const page = await pdf.getPage(pageNumber);
       const base = page.getViewport({ scale: 1 });
-      // Keep PDF pages close to high-resolution phone photos. The previous
-      // 2.4x cap produced ~2K pages and then recompressed them as JPEG, so the
-      // enhancement filter received a softer, blockier source than image input.
-      const scale = Math.min(4, PDF_RENDER_MAX_EDGE / Math.max(base.width, base.height));
+      const scale = Math.min(2.4, 2200 / Math.max(base.width, base.height));
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(viewport.width));
@@ -95,12 +82,10 @@ export function ScanWorkspace() {
       if (!context) throw new Error(`${file.name}: không thể dựng trang ${pageNumber}.`);
       context.fillStyle = "white";
       context.fillRect(0, 0, canvas.width, canvas.height);
-      await withTimeout(page.render({ canvas, canvasContext: context, viewport, background: "#FFFFFF" }).promise, 30_000, `${name}: trang ${pageNumber} mất quá nhiều thời gian để dựng.`);
+      await withTimeout(page.render({ canvas, canvasContext: context, viewport }).promise, 30_000, `${name}: trang ${pageNumber} mất quá nhiều thời gian để dựng.`);
       const textContent = await page.getTextContent();
       const embeddedText = sanitizeDocumentText(textContent.items.map((item) => "str" in item ? `${item.str}${item.hasEOL ? "\n" : " "}` : "").join("")).trim();
-      // PNG avoids a second lossy pass before the normal image-processing
-      // pipeline, making the same enhancement settings behave consistently.
-      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Không thể tạo ảnh trang PDF.")), "image/png"));
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Không thể tạo ảnh trang PDF.")), "image/jpeg", .95));
       const url = URL.createObjectURL(blob);
       objectUrls.current.add(url);
       results.push({ url, width: canvas.width, height: canvas.height, name: `${name} · trang ${pageNumber}`, embeddedText: embeddedText.length >= 12 ? embeddedText : undefined });
@@ -234,8 +219,6 @@ export function ScanWorkspace() {
         const grayscale = await renderPage(grayscalePage, maxEdge);
         let best = await worker.recognize(grayscale, {}, { text: true, blocks: true });
 
-        // A second colour-enhanced pass often recovers stamps, coloured cells and
-        // faint characters. Keep the page result with the higher OCR confidence.
         if (best.data.confidence < 94) {
           const enhancedPage: ScanPage = { ...sourcePage, settings: { ...grayscalePage.settings, filter: "enhanced" } };
           const enhanced = await renderPage(enhancedPage, maxEdge);
@@ -301,11 +284,11 @@ export function ScanWorkspace() {
     const exportPages = pages.map((page) => ({ ...page, corners: page.corners.map((p) => ({ ...p })) as typeof page.corners, settings: { ...page.settings } }));
     cancelExport.current = false; setExportOpen(false); setExporting(true); setProgress(0); setMessage("Đang tạo PDF trên thiết bị…");
     try {
-      const maxEdge = exportOptions.quality === "compact" ? 1600 : exportOptions.quality === "high" ? 2800 : 2200;
-      const jpegQuality = exportOptions.quality === "compact" ? .72 : exportOptions.quality === "high" ? .95 : .86;
+      const maxEdge = exportOptions.quality === "compact" ? 1800 : exportOptions.quality === "high" ? 4800 : 3200;
+      const jpegQuality = exportOptions.quality === "compact" ? .82 : exportOptions.quality === "high" ? .98 : .93;
       const margin = exportOptions.margin === "none" ? 0 : exportOptions.margin === "large" ? 15 : 8;
       if (exportOptions.format === "docx") {
-        await createWordDocument(exportPages, Math.max(2200, maxEdge));
+        await createWordDocument(exportPages, Math.max(2800, maxEdge));
         setMessage("File Word đã được tạo · hãy kiểm tra các đoạn được tô vàng.");
         return;
       }
@@ -329,7 +312,7 @@ export function ScanWorkspace() {
         const w = canvas.width * ratio, h = canvas.height * ratio;
         const lossless = exportPages[i].settings.filter === "bw";
         const imageData = lossless ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", jpegQuality);
-        pdf.addImage(imageData, lossless ? "PNG" : "JPEG", (sheetW - w) / 2, (sheetH - h) / 2, w, h, undefined, "FAST");
+        pdf.addImage(imageData, lossless ? "PNG" : "JPEG", (sheetW - w) / 2, (sheetH - h) / 2, w, h, undefined, "MEDIUM");
         setProgress(Math.round(((i + 1) / exportPages.length) * 100));
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
@@ -340,40 +323,119 @@ export function ScanWorkspace() {
     finally { setExporting(false); }
   }
 
-  function drop(event: DragEvent) { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }
+  function clearSession() {
+    if (exporting) return;
+    pages.forEach((p) => { URL.revokeObjectURL(p.url); objectUrls.current.delete(p.url); });
+    setPages([]);
+    setActiveId("");
+    setMessage("Đã xóa toàn bộ phiên làm việc.");
+  }
 
-  return <main>
-    <header className="topbar"><a className="brand" href="#top" aria-label="AK Scan, về đầu trang"><span><ScanLine size={20} /></span>AK Scan</a><div className="privacy"><LockKeyhole size={15} /> Xử lý cục bộ · không tải ảnh lên</div><a className="header-link" href="#huong-dan">Hướng dẫn sử dụng</a></header>
-    <section className="intro" id="top"><div><p className="overline">Ảnh tài liệu → PDF scan</p><h1>Trang trắng hơn.<br />Chữ rõ hơn.</h1></div><div className="intro-copy"><p>Chọn ảnh, cân sáng và ghép thành một file PDF ngay trong trình duyệt. Không cần đăng ký.</p><div className="trust"><ShieldCheck size={18} /><span><strong>Riêng tư theo thiết kế</strong><br />Ảnh không rời thiết bị của bạn.</span></div></div></section>
+  return (
+    <main className="app-shell">
+      <AppHeader hasPages={pages.length > 0} exporting={exporting} onClearSession={clearSession} />
 
-    {!pages.length ? <section className={`upload-zone ${dragging ? "dragging" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}>
-      <div className="upload-icon"><FileImage size={30} /></div><h2>Đưa ảnh hoặc PDF vào đây</h2><p>JPG, PNG, WebP hoặc PDF · tối đa 20 trang</p>
-      <div className="upload-actions"><button className="button primary" onClick={() => fileRef.current?.click()}><Upload size={18} /> Chọn ảnh</button><button className="button secondary" onClick={() => pdfRef.current?.click()}><FileText size={18} /> Chọn PDF</button><button className="button secondary" onClick={() => cameraRef.current?.click()}><Camera size={18} /> Mở camera</button></div>
-      <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-      <input ref={pdfRef} className="sr-only" type="file" accept="application/pdf,.pdf" onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-      <input ref={cameraRef} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-      <small>Mẹo: đặt giấy trên nền tối, giữ máy song song với mặt giấy.</small>
-    </section> : <section className={`workbench ${exporting ? "exporting" : ""}`} aria-label="Bàn chỉnh sửa tài liệu" aria-busy={exporting}>
-      <aside className="pages-panel"><div className="panel-heading"><div><span>TRANG</span><strong>{pages.length}/20</strong></div><div className="panel-add-actions"><button onClick={() => fileRef.current?.click()} aria-label="Thêm ảnh" title="Thêm ảnh"><ImagePlus size={18} /></button><button onClick={() => pdfRef.current?.click()} aria-label="Thêm PDF" title="Thêm PDF"><FileText size={17} /></button></div></div>
-        <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-        <input ref={pdfRef} className="sr-only" type="file" accept="application/pdf,.pdf" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-        <DndContext sensors={sensors} onDragStart={() => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={(e) => { setDragging(false); onDragEnd(e); }}><SortableContext items={pages.map((p) => p.id)} strategy={verticalListSortingStrategy}><ol className="page-list">{pages.map((page, index) => <SortablePage key={page.id} page={page} index={index} last={index === pages.length - 1} active={active?.id === page.id} onSelect={() => setActiveId(page.id)} onDelete={() => removePage(page.id)} onMove={(delta) => movePage(index, delta)} />)}</ol></SortableContext></DndContext>
-      </aside>
-      <section className="canvas-panel"><div className="canvas-toolbar"><div className="crop-tools"><button className={`crop-toggle ${editingCorners ? "selected" : ""}`} onClick={() => { setEditingCorners((value) => !value); setShowOriginal(false); }} aria-pressed={editingCorners}><Crop size={16} /> {editingCorners ? "Xong chỉnh góc" : "Chỉnh 4 góc"}</button><button className="detect-button" onClick={() => void autoDetect()} disabled={detecting}>{detecting ? <LoaderCircle className="detect-spinner" size={16} /> : <ScanSearch size={16} />} {detecting ? "Đang dò…" : "Tự dò mép"}</button></div><div>{editingCorners && <button onClick={() => updateActive({ corners: defaultCorners.map((p) => ({ ...p })) as typeof defaultCorners })}>Đặt lại</button>}<button className={showOriginal ? "selected" : ""} onClick={() => { setShowOriginal((value) => !value); setEditingCorners(false); }} aria-pressed={showOriginal}><Eye size={17} /> {showOriginal ? "Đang xem gốc" : "Xem ảnh gốc"}</button><button onClick={() => updateActive({ rotation: (active.rotation + 270) % 360 })} aria-label="Xoay trái"><RotateCw className="flip" size={17} /></button><button onClick={() => updateActive({ rotation: (active.rotation + 90) % 360 })} aria-label="Xoay phải"><RotateCw size={17} /></button></div></div>{active && <ScanPreview page={active} editing={editingCorners} showOriginal={showOriginal} onCornersChange={(corners) => updateActive({ corners })} />}</section>
-      <aside className="controls-panel"><div className="panel-title"><SlidersHorizontal size={18} /><div><h2>Chỉnh bản scan</h2><p>Bắt đầu từ ảnh gốc, sau đó chọn cách xử lý.</p></div></div>
-        {active.qualityWarning && <div className="quality-alert"><AlertTriangle size={17} /><div><strong>Cần bạn kiểm tra</strong><span>{active.qualityWarning}</span></div>{active.qualityWarning.includes("4 góc") && <button onClick={() => { setEditingCorners(true); setShowOriginal(false); }}>Kiểm tra ngay</button>}</div>}
-        <p className="control-section-label">Chế độ trang</p>
-        <div className="filter-grid">{filters.map((filter) => <button key={filter.id} className={active.settings.filter === filter.id ? "selected" : ""} onClick={() => selectFilter(filter.id)} aria-pressed={active.settings.filter === filter.id}><span className={`filter-swatch ${filter.id}`} />{filter.label}</button>)}</div>
-        {active.settings.filter === "original" && <div className="original-note"><Eye size={16} /><span>Đang hiển thị ảnh nguyên bản. Chọn một chế độ khác để làm trắng nền và tăng nét.</span></div>}
-        <div className="adjustment-group"><p className="control-section-label">Căn trang</p><div className="sliders"><label><span>Căn thẳng<output>{(active.fineRotation ?? 0).toFixed(1)}°</output></span><input type="range" min={-3} max={3} step={.1} value={active.fineRotation ?? 0} onChange={(event) => updateActive({ fineRotation: Number(event.target.value) })} /></label></div><button className={`dewarp-toggle ${active.dewarp ? "selected" : ""}`} aria-pressed={Boolean(active.dewarp)} onClick={() => updateActive({ dewarp: !active.dewarp })}><ScanLine size={19} /><span><strong>Làm phẳng giấy cong</strong><small>Dùng cho sách, giấy bị phồng hoặc đường bảng bị cong</small></span><span className="toggle-state">{active.dewarp ? "Đang bật" : "Đang tắt"}</span></button></div>
-        <div className={`adjustment-group ${active.settings.filter === "original" ? "disabled" : ""}`}><p className="control-section-label">Làm sạch &amp; tăng nét</p><div className="sliders">{([ ["brightness", "Độ sáng", -30, 40], ["contrast", "Tương phản", 0, 60], ["whiten", "Trắng nền", 0, 80], ["removeShadow", "Xóa bóng", 0, 80], ["sharpen", "Sắc nét", 0, 60] ] as const).map(([key,label,min,max]) => <label key={key}><span>{label}<output>{active.settings[key]}</output></span><input type="range" min={min} max={max} value={active.settings[key]} disabled={active.settings.filter === "original"} onChange={(e) => updateSetting(key, Number(e.target.value))} /></label>)}</div></div>
-        <div className="control-actions"><button className="reset" onClick={() => updateActive({ settings: { ...defaultSettings }, fineRotation: 0, dewarp: false })}>Đặt lại</button><button className="reset" onClick={applyToAll}>Áp dụng mọi trang</button></div>
-        <div className="export-box"><div><strong>Sẵn sàng xuất</strong><span>{pages.length} trang · {exportOptions.pageSize === "fit" ? "Vừa ảnh" : exportOptions.pageSize.toUpperCase()}</span></div><button className="button primary export" onClick={() => setExportOpen(true)} disabled={exporting}>{exporting ? <><span className="spinner light" /> Đang tạo {progress}%</> : <><Download size={18} /> Tùy chọn & tải PDF</>}</button>{exporting && <><div className="progress"><span style={{ transform: `scaleX(${progress / 100})` }} /></div><button className="cancel-export" onClick={() => { cancelExport.current = true; }}>Hủy xuất</button></>}</div>
-      </aside>
-    </section>}
-    <ExportDialog open={exportOpen} pageCount={pages.length} options={exportOptions} onChange={setExportOptions} onClose={() => setExportOpen(false)} onExport={() => void exportPdf()} />
-    <p className="live-message" aria-live="polite">{message}</p>
-    <HomeGuide />
-    <footer className="scan-footer"><div><a className="brand" href="#top"><span><ScanLine size={18} /></span>AK Scan</a><p>© 2026 akkhanh — THE KODENAK · Miễn phí trên GitHub.</p></div><nav><a href="#huong-dan">Hướng dẫn</a><a href="#quyen-rieng-tu">Quyền riêng tư</a><a href="#dieu-khoan">Điều khoản</a><a href="#gioi-han">Giới hạn</a></nav><button className="text-button" onClick={() => { if (exporting) return; pages.forEach((p) => { URL.revokeObjectURL(p.url); objectUrls.current.delete(p.url); }); setPages([]); setActiveId(""); }} disabled={!pages.length || exporting}><Trash2 size={15} /> Xóa phiên hiện tại</button></footer>
-  </main>;
+      {!pages.length ? (
+        <HomeUpload dragging={dragging} fileRef={fileRef} pdfRef={pdfRef} cameraRef={cameraRef} onDraggingChange={setDragging} onFiles={(files) => void addFiles(files)} />
+      ) : (
+        <section className={`workbench ${exporting ? "exporting" : ""}`} aria-label="Bàn chỉnh sửa tài liệu" aria-busy={exporting}>
+          <aside className="pages-panel">
+            <div className="panel-heading">
+              <div><span>TRANG</span><strong>{pages.length}/20</strong></div>
+              <div className="panel-add-actions">
+                <button onClick={() => fileRef.current?.click()} aria-label="Thêm ảnh" title="Thêm ảnh"><ImagePlus size={18} /></button>
+                <button onClick={() => pdfRef.current?.click()} aria-label="Thêm PDF" title="Thêm PDF"><FileText size={17} /></button>
+              </div>
+            </div>
+            <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+            <input ref={pdfRef} className="sr-only" type="file" accept="application/pdf,.pdf" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+            <DndContext sensors={sensors} onDragStart={() => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={(e) => { setDragging(false); onDragEnd(e); }}>
+              <SortableContext items={pages.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                <ol className="page-list">
+                  {pages.map((page, index) => <SortablePage key={page.id} page={page} index={index} last={index === pages.length - 1} active={active?.id === page.id} onSelect={() => setActiveId(page.id)} onDelete={() => removePage(page.id)} onMove={(delta) => movePage(index, delta)} />)}
+                </ol>
+              </SortableContext>
+            </DndContext>
+          </aside>
+
+          <section className="canvas-panel">
+            <div className="canvas-toolbar">
+              <div className="crop-tools">
+                <button className={`crop-toggle ${editingCorners ? "selected" : ""}`} onClick={() => { setEditingCorners((value) => !value); setShowOriginal(false); }} aria-pressed={editingCorners}>
+                  <Crop size={16} /> {editingCorners ? "Xong chỉnh góc" : "Chỉnh 4 góc"}
+                </button>
+                <button className="detect-button" onClick={() => void autoDetect()} disabled={detecting}>
+                  {detecting ? <LoaderCircle className="detect-spinner" size={16} /> : <ScanSearch size={16} />} {detecting ? "Đang dò…" : "Tự dò mép"}
+                </button>
+              </div>
+              <div>
+                {editingCorners && <button onClick={() => updateActive({ corners: defaultCorners.map((p) => ({ ...p })) as typeof defaultCorners })}>Đặt lại</button>}
+                <button className={showOriginal ? "selected" : ""} onClick={() => { setShowOriginal((value) => !value); setEditingCorners(false); }} aria-pressed={showOriginal}>
+                  <Eye size={17} /> {showOriginal ? "Đang xem gốc" : "Xem ảnh gốc"}
+                </button>
+                <button onClick={() => updateActive({ rotation: (active.rotation + 270) % 360 })} aria-label="Xoay trái"><RotateCw className="flip" size={17} /></button>
+                <button onClick={() => updateActive({ rotation: (active.rotation + 90) % 360 })} aria-label="Xoay phải"><RotateCw size={17} /></button>
+              </div>
+            </div>
+            {active && <ScanPreview page={active} editing={editingCorners} showOriginal={showOriginal} onCornersChange={(corners) => updateActive({ corners })} />}
+          </section>
+
+          <aside className="controls-panel">
+            <div>
+              <div className="panel-title">
+                <SlidersHorizontal size={16} />
+                <h2>Chỉnh bản scan</h2>
+              </div>
+              {active.qualityWarning && <div className="quality-alert"><AlertTriangle size={15} /><div><span>{active.qualityWarning}</span></div>{active.qualityWarning.includes("4 góc") && <button onClick={() => { setEditingCorners(true); setShowOriginal(false); }}>Xem</button>}</div>}
+              
+              <p className="control-section-label">Chế độ trang</p>
+              <div className="filter-grid">{filters.map((filter) => <button key={filter.id} className={active.settings.filter === filter.id ? "selected" : ""} onClick={() => selectFilter(filter.id)} aria-pressed={active.settings.filter === filter.id}><span className={`filter-swatch ${filter.id}`} />{filter.label}</button>)}</div>
+              
+              <div className="adjustment-group">
+                <p className="control-section-label">Căn trang</p>
+                <div className="sliders">
+                  <label><span>Căn thẳng<output>{(active.fineRotation ?? 0).toFixed(1)}°</output></span><input type="range" min={-3} max={3} step={.1} value={active.fineRotation ?? 0} onChange={(event) => updateActive({ fineRotation: Number(event.target.value) })} /></label>
+                </div>
+                <button className={`dewarp-toggle ${active.dewarp ? "selected" : ""}`} aria-pressed={Boolean(active.dewarp)} title="Chỉ nắn ảnh khi phát hiện đường chữ cong đủ tin cậy" onClick={() => {
+                  const enabled = !active.dewarp;
+                  updateActive({ dewarp: enabled });
+                  setShowOriginal(false);
+                  setEditingCorners(false);
+                  setMessage(enabled ? "Đã bật làm phẳng an toàn · ảnh chỉ được nắn khi phát hiện đường chữ cong đủ tin cậy." : "Đã tắt làm phẳng giấy cong.");
+                }}>
+                  <span><ScanLine size={16} /> <strong>Làm phẳng giấy cong</strong></span>
+                  <span className="toggle-state">{active.dewarp ? "Bật" : "Tắt"}</span>
+                </button>
+              </div>
+
+              <div className={`adjustment-group ${active.settings.filter === "original" ? "disabled" : ""}`}>
+                <p className="control-section-label">Làm sạch &amp; tăng nét</p>
+                <div className="sliders">{([ ["brightness", "Độ sáng", -30, 40], ["contrast", "Tương phản", 0, 60], ["whiten", "Trắng nền", 0, 80], ["removeShadow", "Xóa bóng", 0, 80], ["sharpen", "Sắc nét", 0, 60] ] as const).map(([key,label,min,max]) => <label key={key}><span>{label}<output>{active.settings[key]}</output></span><input type="range" min={min} max={max} value={active.settings[key]} disabled={active.settings.filter === "original"} onChange={(e) => updateSetting(key, Number(e.target.value))} /></label>)}</div>
+              </div>
+
+              <div className="control-actions">
+                <button className="reset" onClick={() => updateActive({ settings: { ...defaultSettings }, fineRotation: 0, dewarp: false })}>Đặt lại</button>
+                <button className="reset" onClick={applyToAll}>Áp dụng mọi trang</button>
+              </div>
+            </div>
+
+            <div className="export-box">
+              <div><strong>Sẵn sàng xuất</strong><span>{pages.length} trang · {exportOptions.pageSize === "fit" ? "Vừa ảnh" : exportOptions.pageSize.toUpperCase()}</span></div>
+              <button className="button primary export" onClick={() => setExportOpen(true)} disabled={exporting}>
+                {exporting ? <><span className="spinner light" /> Đang tạo {progress}%</> : <><Download size={18} /> Tùy chọn & tải PDF</>}
+              </button>
+              {exporting && <><div className="progress"><span style={{ transform: `scaleX(${progress / 100})` }} /></div><button className="cancel-export" onClick={() => { cancelExport.current = true; }}>Hủy xuất</button></>}
+            </div>
+          </aside>
+        </section>
+      )}
+
+      <ExportDialog open={exportOpen} pageCount={pages.length} options={exportOptions} onChange={setExportOptions} onClose={() => setExportOpen(false)} onExport={() => void exportPdf()} />
+      <p className="live-message" aria-live="polite">{message}</p>
+
+      <HomeGuide />
+      <AppFooter />
+      <DonateWidget inWorkbench={pages.length > 0} />
+    </main>
+  );
 }

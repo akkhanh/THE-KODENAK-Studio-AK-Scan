@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import type { Corners, ScanPage } from "@/lib/scan";
 import { renderPage } from "@/lib/scan";
 
@@ -9,8 +10,14 @@ const cornerNames = ["trên trái", "trên phải", "dưới phải", "dưới t
 export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { page: ScanPage; editing: boolean; showOriginal: boolean; onCornersChange: (corners: Corners) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const documentRef = useRef<HTMLDivElement>(null);
-  const renderKey = `${page.id}:${page.rotation}:${page.fineRotation ?? 0}:${page.dewarp ? 1 : 0}:${JSON.stringify(page.corners)}:${JSON.stringify(page.settings)}:${editing}:${showOriginal}`;
+  
+  // Exclude page.corners from renderKey when editing/showOriginal to prevent canvas redraw & layout jitter on corner drag
+  const renderKey = editing || showOriginal
+    ? `${page.id}:${page.url}:mode:${editing ? "edit" : "orig"}`
+    : `${page.id}:${page.rotation}:${page.fineRotation ?? 0}:${page.dewarp ? 1 : 0}:${JSON.stringify(page.corners)}:${JSON.stringify(page.settings)}`;
+    
   const [result, setResult] = useState({ key: "", error: "" });
+  const [zoom, setZoom] = useState(1);
   const loading = result.key !== renderKey;
   const error = result.key === renderKey ? result.error : "";
 
@@ -25,7 +32,7 @@ export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { 
         raw.getContext("2d")?.drawImage(image, 0, 0, raw.width, raw.height); resolve(raw);
       };
       image.onerror = () => reject(new Error("Không thể đọc ảnh này.")); image.src = page.url;
-    }) : renderPage(page, 1000);
+    }) : renderPage(page, 1600);
     task.then((rendered) => {
       if (!live || !canvasRef.current) return;
       const canvas = canvasRef.current;
@@ -36,6 +43,18 @@ export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { 
     }).catch((err: Error) => { if (live) setResult({ key: renderKey, error: err.message }); });
     return () => { live = false; };
   }, [page, editing, renderKey, showOriginal]);
+
+  function zoomIn() {
+    setZoom((z) => Math.min(3, Math.round((z + 0.25) * 100) / 100));
+  }
+
+  function zoomOut() {
+    setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100));
+  }
+
+  function resetZoom() {
+    setZoom(1);
+  }
 
   function setCorner(index: number, x: number, y: number) {
     const next = page.corners.map((point) => ({ ...point })) as Corners;
@@ -51,20 +70,88 @@ export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { 
   }
 
   return (
-    <div className="preview-stage" aria-busy={loading}>
+    <div
+      className="preview-stage"
+      aria-busy={loading}
+      onWheel={(e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (e.deltaY < 0) zoomIn();
+          else zoomOut();
+        }
+      }}
+    >
       {loading && <div className="preview-status"><span className="spinner" />Đang dựng bản scan…</div>}
       {error && <div className="preview-error" role="alert">{error}</div>}
-      <div className="preview-document" ref={documentRef}>
+
+      <div className="preview-scroll-area" tabIndex={0} aria-label="Vùng tài liệu có thể cuộn ngang và dọc khi phóng to">
+        <div
+          className="preview-document"
+          ref={documentRef}
+          style={{ zoom }}
+        >
         <canvas ref={canvasRef} role="img" aria-label={editing ? `Ảnh gốc để chỉnh bốn góc: ${page.name}` : `Bản xem trước ${page.name}`}>Trình duyệt không hỗ trợ Canvas.</canvas>
         {editing && <>
           <svg className="crop-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polygon points={page.corners.map((p) => `${p.x * 100},${p.y * 100}`).join(" ")} /></svg>
-          {page.corners.map((point, index) => <button key={index} className="corner-handle" style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }} aria-label={`Chỉnh góc ${cornerNames[index]}`} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); moveFromPointer(index, event.clientX, event.clientY); }} onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) moveFromPointer(index, event.clientX, event.clientY); }} onKeyDown={(event) => {
-            const step = event.shiftKey ? .02 : .004; let { x, y } = point;
-            if (event.key === "ArrowLeft") x -= step; else if (event.key === "ArrowRight") x += step; else if (event.key === "ArrowUp") y -= step; else if (event.key === "ArrowDown") y += step; else return;
-            event.preventDefault(); setCorner(index, x, y);
-          }}><span>{index + 1}</span></button>)}
+          {page.corners.map((point, index) => (
+            <button
+              key={index}
+              className="corner-handle"
+              style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+              aria-label={`Chỉnh góc ${cornerNames[index]}`}
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                moveFromPointer(index, event.clientX, event.clientY);
+              }}
+              onPointerMove={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  moveFromPointer(index, event.clientX, event.clientY);
+                }
+              }}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? .02 : .004; let { x, y } = point;
+                if (event.key === "ArrowLeft") x -= step; else if (event.key === "ArrowRight") x += step; else if (event.key === "ArrowUp") y -= step; else if (event.key === "ArrowDown") y += step; else return;
+                event.preventDefault(); setCorner(index, x, y);
+              }}
+            >
+              <span>{index + 1}</span>
+            </button>
+          ))}
         </>}
+        </div>
       </div>
+
+      {/* Floating Zoom Controls Bar with Interactive Slider */}
+      <div className="zoom-controls-bar" aria-label="Bộ điều khiển thu phóng">
+        <button className="zoom-btn" onClick={zoomOut} disabled={zoom <= 0.5} title="Thu nhỏ (-25%)" aria-label="Thu nhỏ">
+          <ZoomOut size={14} />
+        </button>
+
+        <input
+          type="range"
+          min={50}
+          max={300}
+          step={5}
+          value={Math.round(zoom * 100)}
+          onChange={(e) => setZoom(Number(e.target.value) / 100)}
+          className="zoom-slider-input"
+          title={`Thu phóng: ${Math.round(zoom * 100)}%`}
+          aria-label="Thanh kéo thu phóng ảnh"
+        />
+
+        <button className="zoom-btn" onClick={zoomIn} disabled={zoom >= 3} title="Phóng to (+25%)" aria-label="Phóng to">
+          <ZoomIn size={14} />
+        </button>
+
+        <button className="zoom-value-btn" onClick={resetZoom} title="Bấm để đặt lại về 100%">
+          {Math.round(zoom * 100)}%
+        </button>
+
+        <button className="zoom-btn reset-fit" onClick={resetZoom} title="Phóng/Thu vừa màn hình" aria-label="Vừa màn hình">
+          <Maximize2 size={13} />
+        </button>
+      </div>
+
       <span aria-hidden="true" className="preview-corner top-left" /><span aria-hidden="true" className="preview-corner top-right" />
       <span aria-hidden="true" className="preview-corner bottom-left" /><span aria-hidden="true" className="preview-corner bottom-right" />
     </div>

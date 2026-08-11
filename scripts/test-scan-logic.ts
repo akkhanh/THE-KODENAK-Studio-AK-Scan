@@ -12,6 +12,14 @@ import {
   intersectLines,
   distance,
   projectUnitToQuad,
+  scoreDocumentBoundary,
+  correctShadowChannel,
+  protectInkFromShadowRemoval,
+  shouldPreserveDocumentColor,
+  isDarkInkOnColoredSurface,
+  sharpenChannel,
+  restoreColoredSurfaceChannel,
+  estimateDocumentShadowSeverity,
   detectTableGrid,
   ScanSettings,
   Corners,
@@ -264,6 +272,76 @@ runTest("distance function calculates scaled Euclidean distance", () => {
   // Distance = sqrt(300^2 + 400^2) = 500
   const dist = distance(p1, p2, 1000, 1000);
   assertCloseTo(dist, 500, 1e-4, "3-4-5 triangle scaled distance");
+});
+
+runTest("document boundary scoring rejects a strong outer frame in favour of an inset paper edge", () => {
+  const outerTableFrame = scoreDocumentBoundary(150, 0.02, 170, 170);
+  const insetPaperEdge = scoreDocumentBoundary(100, 0.16, 225, 185);
+  assert(insetPaperEdge > outerTableFrame, "Inset bright paper edge should outrank a stronger frame near the image border");
+
+  const closeCroppedPaper = scoreDocumentBoundary(100, 0.025, 235, 150);
+  assert(closeCroppedPaper > outerTableFrame, "A real high-contrast paper edge may still be selected near the image border");
+});
+
+runTest("deep-shadow correction lifts camera shadows while preserving ink contrast", () => {
+  const shadowPaper = correctShadowChannel(38, 52, 1);
+  const shadowInk = correctShadowChannel(8, 52, 1);
+  const mediumShadow = correctShadowChannel(82, 150, 1);
+  const normalPaper = correctShadowChannel(225, 225, 1);
+  assert(shadowPaper > 200, "Deep shadow background should be lifted close to paper white");
+  assert(shadowPaper - shadowInk >= 25, "Ink contrast inside a deep shadow should be preserved");
+  assert(mediumShadow > 145, "A medium narrow shadow should be lifted before it becomes a black patch");
+  assert(normalPaper >= 235 && normalPaper <= 250, "Normally lit paper should not be overexposed excessively");
+});
+
+runTest("shadow removal protects sharp black ink but keeps correcting smooth shadows", () => {
+  const inkStrength = protectInkFromShadowRemoval(1, 24, 220);
+  const smoothShadowStrength = protectInkFromShadowRemoval(1, 48, 58);
+  assert(inkStrength < .15, "Sharp black text should receive very little shadow lifting");
+  assert(smoothShadowStrength > .9, "A smooth dark patch should keep the full shadow correction");
+});
+
+runTest("colour preservation keeps intentional document colours but rejects pale edge casts", () => {
+  assert(shouldPreserveDocumentColor(30, 135, 225), "A saturated blue table cell should retain its colour");
+  assert(shouldPreserveDocumentColor(215, 35, 45), "A red stamp should retain its colour");
+  assert(!shouldPreserveDocumentColor(210, 230, 240), "A pale cyan cast on white paper should be neutralized");
+  assert(!shouldPreserveDocumentColor(245, 232, 210), "A pale warm cast on white paper should be neutralized");
+});
+
+runTest("dark text on a coloured table cell is protected from white pinholes", () => {
+  assert(isDarkInkOnColoredSurface(28, 30, 32, 25, 118, 190), "Black table-header text should be detected as ink over blue");
+  assert(!isDarkInkOnColoredSurface(25, 118, 190, 25, 118, 190), "The blue cell itself is not ink");
+  assert(!isDarkInkOnColoredSurface(28, 30, 32, 235, 238, 240), "Black text on neutral paper should use the normal enhancer");
+});
+
+runTest("document sharpening darkens ink without creating a white halo", () => {
+  assertEquals(sharpenChannel(80, 20, .2, true), 68, "A dark stroke may be made darker");
+  assertEquals(sharpenChannel(180, 300, .2, true), 180, "Bright overshoot around a stroke must be suppressed");
+  assertEquals(sharpenChannel(180, 300, .2, false), 204, "Original-photo sharpening may retain symmetric detail enhancement");
+});
+
+runTest("neutral edge halos are reconstructed from the coloured surface hue", () => {
+  const red = restoreColoredSurfaceChannel(25, 105, 12);
+  const green = restoreColoredSurfaceChannel(105, 105, 12);
+  const blue = restoreColoredSurfaceChannel(185, 105, 12);
+  assert(blue > green && green > red, "Reconstructed pixels should retain the blue surface hue");
+  assert(blue < 255, "Surface reconstruction must not create a clipped white/cyan rim");
+});
+
+runTest("shadow profiling keeps clean scans on the classic enhancer and detects phone shadows", () => {
+  const clean = new Uint8ClampedArray(100 * 4);
+  const shadowed = new Uint8ClampedArray(100 * 4);
+  for (let pixel = 0; pixel < 100; pixel++) {
+    const cleanTone = pixel < 8 ? 205 : 242;
+    const shadowTone = pixel < 22 ? 92 : 232;
+    for (let channel = 0; channel < 3; channel++) {
+      clean[pixel * 4 + channel] = cleanTone;
+      shadowed[pixel * 4 + channel] = shadowTone;
+    }
+    clean[pixel * 4 + 3] = shadowed[pixel * 4 + 3] = 255;
+  }
+  assert(estimateDocumentShadowSeverity(clean) < .68, "A clean scan should retain the classic enhancement profile");
+  assert(estimateDocumentShadowSeverity(shadowed) >= .68, "A broad phone shadow should enable deep-shadow correction");
 });
 
 runTest("projectUnitToQuad maps unit coordinates (u, v) to quadrilateral points", () => {
