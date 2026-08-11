@@ -1,69 +1,70 @@
 # Bảo mật và quyền riêng tư
 
-## 1. Phân loại dữ liệu
+## 1. Mô hình dữ liệu
 
-Ảnh, OCR text, PDF/DOCX và filename là dữ liệu nhạy cảm. ID kỹ thuật, metrics đã tổng hợp và error code đã làm sạch là dữ liệu vận hành. Mặc định không dùng tài liệu để huấn luyện mô hình.
+AK Scan hiện không có backend, database, tài khoản hay API upload. Ảnh, PDF, OCR text và file đầu ra nằm trong bộ nhớ/trình duyệt của người dùng. Ứng dụng không gửi nội dung tài liệu đến máy chủ AK Scan.
 
-## 2. Kiểm soát truy cập
+Website vẫn cần tải JavaScript, PDF worker và có thể tải model ngôn ngữ OCR. Những request này không chứa tài liệu người dùng.
 
-- Mọi resource lookup gắn owner; resource khác chủ trả 404.
-- Guest token được hash trong DB, cookie Secure/HttpOnly/SameSite phù hợp.
-- Presigned URL hết hạn ngắn, giới hạn object key và method.
-- Object bucket private; chặn public access.
-- Service account theo least privilege và tách môi trường.
+## 2. Kiểm tra input
 
-## 3. Upload an toàn
+`lib/upload-security.ts` không tin `file.type` hoặc phần mở rộng. Hệ thống đọc magic bytes để nhận dạng JPEG, PNG, WebP và PDF.
 
-- Allowlist định dạng và xác minh magic bytes.
-- Giới hạn từng file, tổng file, dimension và decoded pixel.
-- Timeout decode; chặn decompression bomb và malformed image.
-- Không thực thi macro; DOCX/PDF chỉ là output do hệ thống tạo.
-- Quarantine hoặc scan nếu phát hiện file bất thường.
+Giới hạn hiện tại:
 
-## 4. Mã hóa và secret
+- 15 MB mỗi ảnh.
+- 24 MP mỗi ảnh.
+- 40 MB mỗi PDF.
+- 20 trang mỗi phiên.
+- 160 triệu decoded pixel mỗi phiên.
+- 15 giây decode ảnh; 30 giây mở hoặc render trang PDF.
 
-- TLS cho dữ liệu truyền.
-- Encryption at rest của database/storage.
-- Secret manager; không commit key hoặc `.env` thật.
-- Rotation key và audit quyền truy cập production.
+File sai định dạng, giả extension, rỗng, decode lỗi hoặc vượt quota bị từ chối trước pipeline chính.
 
-## 5. Logging và analytics
+## 3. PDF an toàn
 
-Không log:
+PDF.js chạy parser trong worker nội bộ `pdf.worker.min.mjs`. Chỉ nội dung raster và text items được dùng; JavaScript action hoặc form action trong PDF không được thực thi bởi ứng dụng. Trang render lỗi hoặc timeout sẽ được dọn dẹp và Blob URL đã tạo được thu hồi.
 
-- OCR text, ảnh hoặc binary.
-- Filename gốc nếu có thể chứa PII.
-- Presigned URL đầy đủ, token hoặc authorization header.
-- Nội dung exception từ OCR provider nếu chứa payload.
+## 4. Text và DOCX
 
-Log request ID, owner pseudonymous ID, document/job ID, duration, status và error code đã sanitize.
+Filename hiển thị bị loại control character và giới hạn 160 ký tự. Embedded PDF text và OCR text bị loại null byte, XML-invalid control character và lone surrogate trước khi đưa vào thư viện docx. Tên file download do ứng dụng tạo, không dùng path từ filename đầu vào.
 
-## 6. Retention và xóa
+## 5. Quản lý Blob URL
 
-- Guest mặc định một giờ; giá trị cấu hình và hiển thị trước upload.
-- Nút xóa ngay cho source, intermediate và exports.
-- Cleanup có retry, reconciliation, metric tồn đọng và cảnh báo.
-- Cache/CDN không được giữ object quá thời hạn ngoài chính sách.
+Blob URL chỉ có hiệu lực trong origin/session hiện tại. Chúng được theo dõi trong một `Set` và revoke khi xóa trang, xóa phiên, gặp lỗi import hoặc component unmount. Đóng tab/tải lại trang cũng làm mất state phiên.
 
-## 7. Abuse controls
+## 6. HTTP security headers
 
-- Rate limit theo identity và IP có cân nhắc NAT.
-- Quota page, pixel, OCR và concurrent job.
-- Circuit breaker khi provider quá tải.
-- Không cho user điều khiển trực tiếp storage key, shell command, path hoặc template tùy ý.
+Khi chạy bằng Next.js server, `next.config.ts` cấu hình:
 
-## 8. Threat checklist trước release
+- Content-Security-Policy.
+- `X-Frame-Options: DENY` và `frame-ancestors 'none'`.
+- `X-Content-Type-Options: nosniff`.
+- `Referrer-Policy: no-referrer`.
+- Permissions Policy.
+- Cross-Origin-Opener-Policy.
+- HSTS trong production.
+- SRI SHA-384 cho bundle do Next.js sinh.
 
-- IDOR/truy cập chéo.
-- SSRF qua URL import nếu sau này hỗ trợ.
-- Path traversal trong filename/export.
-- Zip bomb cho image ZIP output/input tương lai.
-- Injection qua metadata/filename vào header hoặc DOCX/XML.
-- Race giữa export và delete.
-- Replay upload-complete/presigned URL.
-- Worker xử lý object đã bị thay thế.
-- Rò dữ liệu qua error monitoring.
+GitHub Pages là static hosting và không hỗ trợ `headers()` của Next.js. Workflow vẫn dùng HTTPS và SRI bundle, nhưng các custom response header trên không được áp dụng. Nếu cần policy đầy đủ, deploy qua hosting hỗ trợ header như Vercel, Cloudflare Pages hoặc server riêng.
 
-## 9. Incident response tối thiểu
+## 7. Dependency và supply chain
 
-Có owner trực, cách revoke key, vô hiệu download URL, dừng worker, cô lập bucket/object, truy vết request ID và thông báo nội bộ. Không tự động xóa bằng chứng vận hành trước khi đánh giá sự cố, đồng thời vẫn tuân thủ retention dữ liệu người dùng.
+- `package-lock.json` phải được commit và CI dùng `npm ci`.
+- Có script `npm run security:audit` với ngưỡng high.
+- PDF worker được pin theo dependency đã cài và commit trong `public`.
+- Workflow GitHub Pages dùng action chính thức với version major cố định.
+
+## 8. Quyền riêng tư thực tế
+
+Ứng dụng không thu analytics và không có error-reporting service. Nếu sau này thêm analytics/Sentry, tuyệt đối không gửi OCR text, filename, Blob URL, canvas pixel hoặc nội dung exception có payload tài liệu.
+
+Trên máy dùng chung, người dùng phải xóa phiên, đóng tab và bảo vệ thư mục Downloads. AK Scan không thể xóa file kết quả sau khi trình duyệt đã tải xuống.
+
+## 9. Rủi ro còn lại
+
+- Extension trình duyệt độc hại có thể đọc DOM/Blob URL theo quyền extension.
+- Main-thread image processing có thể làm UI đứng trên thiết bị yếu.
+- Cancel chỉ được kiểm tra giữa các trang, không dừng tức thì kernel Canvas đang chạy.
+- OCR tải model từ nguồn runtime của Tesseract nếu chưa tự host.
+- Kết quả OCR/scan có thể sai; đây là rủi ro toàn vẹn nghiệp vụ, không phải bằng chứng pháp lý.

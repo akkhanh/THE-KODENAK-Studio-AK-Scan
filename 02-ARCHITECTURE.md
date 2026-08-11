@@ -1,88 +1,98 @@
-# Kiến trúc hệ thống
+# Kiến trúc AK Scan
 
-## 1. Kiểu kiến trúc
+> Cập nhật theo source hiện tại. AK Scan là ứng dụng Next.js xử lý tài liệu hoàn toàn trong trình duyệt, không có API upload, database hay backend xử lý ảnh.
 
-MVP dùng modular monolith với các process triển khai độc lập: API, image worker, OCR worker, export worker và cleanup worker. Không tách microservice sớm nhưng ranh giới module phải rõ.
+## 1. Tổng quan
 
 ```text
-Next.js
-   │ HTTPS
-   ▼
-FastAPI ───── PostgreSQL
-   │             │
-   ├──── Redis / Celery Queue
-   │              ├── image worker
-   │              ├── OCR worker
-   │              ├── export worker
-   │              └── cleanup worker
-   │
-   └──── S3-compatible private storage
+Ảnh/PDF trên máy người dùng
+        │
+        ▼
+File API + kiểm tra magic bytes
+        │
+        ├── Ảnh → Blob URL
+        └── PDF → PDF.js Worker → Canvas lossless
+                           │
+                           ▼
+Canvas pipeline: crop → perspective → dewarp → deskew → filter
+                           │
+              ┌────────────┼─────────────┐
+              ▼            ▼             ▼
+           jsPDF       Tesseract.js      docx
+              │         + pdf-lib         │
+              ▼            ▼             ▼
+            PDF      Searchable PDF      DOCX
 ```
 
-## 2. Quyết định công nghệ
+Next.js chỉ cung cấp HTML, CSS, JavaScript và các asset tĩnh. Sau khi trang được tải, file người dùng không được gửi về máy chủ AK Scan.
 
-- FastAPI: API typed, OpenAPI và phù hợp hệ sinh thái xử lý ảnh Python.
-- OpenCV/Pillow/NumPy: crop, perspective, enhancement và encode.
-- PaddleOCR: mặc định; bọc sau `OCRProvider` để thay thế.
-- Celery/Redis: đủ nhanh cho MVP và dễ scale theo loại queue.
-- PostgreSQL: transaction, JSONB cho settings và truy vấn vận hành.
-- S3-compatible storage: file không đi qua API trong upload/download thông thường.
-- PyMuPDF/python-docx: export PDF và Word.
+## 2. Công nghệ đang sử dụng
 
-## 3. Ranh giới module
+- Next.js 16 App Router, React 19 và TypeScript.
+- Canvas API cho toàn bộ pipeline xử lý pixel.
+- PDF.js (`pdfjs-dist`) và `public/pdf.worker.min.mjs` để đọc PDF.
+- Tesseract.js 7 chạy OCR Việt + Anh bằng WebAssembly/Worker.
+- jsPDF để tạo PDF ảnh.
+- pdf-lib để ghép các trang searchable PDF do OCR tạo.
+- docx để tạo Word, paragraph và bảng.
+- dnd-kit để sắp xếp trang.
+- Lucide React cho icon giao diện.
 
-- `auth`: identity, guest session, access token.
-- `documents`: lifecycle tài liệu và retention.
-- `pages`: upload, ordering, corners và settings.
-- `processing`: image pipeline và quality score.
-- `ocr`: provider, normalized result, user corrections.
-- `exports`: PDF/DOCX/TXT/image.
-- `jobs`: enqueue, progress, retry, cancellation.
-- `storage`: presigned URL, object validation, delete.
-- `usage`: quota, rate limit và billing hooks.
+## 3. Cấu trúc source
 
-Module gọi nhau qua service interface, không truy cập bảng của module khác từ route handler.
+```text
+app/
+  page.tsx              Điểm vào trang chủ
+  layout.tsx            Metadata và layout gốc
+  globals.css           Toàn bộ giao diện responsive
+components/
+  scan-workspace.tsx    Quản lý phiên, input, OCR và export
+  scan-preview.tsx      Render preview và chỉnh bốn góc
+  export-dialog.tsx     Tùy chọn file đầu ra
+  home-guide.tsx        Hướng dẫn, riêng tư và điều khoản
+lib/
+  scan.ts               Thuật toán ảnh và render pipeline
+  upload-security.ts    Xác thực input, sanitize và timeout
+public/
+  pdf.worker.min.mjs    Worker PDF.js dùng ở runtime
+.github/workflows/
+  deploy-pages.yml      Build và deploy GitHub Pages
+```
 
-## 4. Luồng upload và xử lý
+## 4. Trạng thái phiên
 
-1. API tạo document/page và object key ngẫu nhiên.
-2. API cấp presigned PUT URL ngắn hạn.
-3. Client upload thẳng storage rồi gọi complete.
-4. Worker xác minh object, kích thước, magic bytes và pixel count.
-5. Worker tạo thumbnail, phát hiện góc và preview.
-6. Người dùng cập nhật corners/settings.
-7. Export command tạo chuỗi job full-resolution → OCR nếu cần → export.
-8. API cấp presigned GET URL ngắn hạn khi hoàn tất.
+`ScanWorkspace` giữ danh sách tối đa 20 `ScanPage` trong React state. Mỗi trang chứa Blob URL, tên, rotation, fine rotation, dewarp, bốn góc chuẩn hóa, filter settings, cảnh báo chất lượng và optional embedded PDF text.
 
-## 5. Queue
+Blob URL được thu hồi khi xóa trang, xóa phiên hoặc unmount component. Không có persistence: tải lại hoặc đóng tab sẽ mất phiên chỉnh sửa.
 
-- `image.preview`: latency thấp.
-- `image.full`: CPU/memory cao.
-- `ocr`: có thể tách CPU/GPU.
-- `export`: PDF/DOCX.
-- `maintenance`: cleanup và reconciliation.
+## 5. Luồng nhập file
 
-Job lưu DB là nguồn sự thật; Celery message chỉ là phương tiện thực thi. Task phải kiểm tra trạng thái hiện tại trước khi chạy để hỗ trợ redelivery.
+### Ảnh
 
-## 6. Idempotency và consistency
+1. Đọc tối đa 1.024 byte đầu và xác minh JPEG/PNG/WebP magic bytes.
+2. Từ chối file rỗng, trên 15 MB, decode lỗi, timeout hoặc trên 24 MP.
+3. Tạo Blob URL và đánh giá độ nét/chất lượng ban đầu.
 
-- `POST /documents`, complete upload và export hỗ trợ `Idempotency-Key`.
-- Mỗi artifact có fingerprint từ source version + corners + settings + pipeline version.
-- Nếu fingerprint không đổi, tái sử dụng artifact hợp lệ.
-- Page update tăng `version`; worker chỉ commit nếu version vẫn khớp.
-- Cleanup dùng trạng thái `deleting` và có reconciliation cho object xóa thất bại.
+### PDF
 
-## 7. Scale
+1. Xác minh `%PDF-` trong 1.024 byte đầu và giới hạn 40 MB.
+2. PDF.js mở file với timeout 30 giây.
+3. Mỗi trang được render nền trắng, cạnh dài tối đa 2.800 px.
+4. Canvas được lưu thành PNG lossless để tránh nén JPEG trung gian.
+5. Text layer có sẵn được sanitize và giữ cho xuất Word.
 
-Thứ tự scale: tăng image worker → OCR worker → tách queue → GPU OCR → tách export → thay broker/workflow engine khi thực tế yêu cầu. API stateless và scale ngang.
+Tổng pixel của một phiên bị giới hạn 160 triệu để giảm nguy cơ tab hết RAM.
 
-## 8. Failure handling
+## 6. Triển khai
 
-- Retry exponential backoff cho storage/network/provider timeout.
-- Không retry file sai, vượt limit, document đã xóa/hết hạn.
-- Dead-letter hoặc trạng thái failed sau số lần tối đa.
-- Một page failed vẫn cho phép user sửa/thử lại hoặc export các page hợp lệ sau xác nhận.
+Local dùng `npm run dev`. Production có server Next.js có thể dùng `npm run build && npm run start` và nhận security headers từ `next.config.ts`.
 
-## 9. Phiên bản artifact
+Trong GitHub Actions, cấu hình tự bật `output: "export"`, xác định `basePath` từ `GITHUB_REPOSITORY` và tạo thư mục `out`. Workflow deploy `out` lên GitHub Pages. PDF worker cũng dùng base path động nên hoạt động ở cả domain gốc và project site.
 
-Lưu `pipeline_version`, `ocr_engine`, `ocr_version` và `export_version`. Việc nâng model không âm thầm thay kết quả cũ; reprocess là hành động rõ ràng.
+## 7. Giới hạn kiến trúc
+
+- Xử lý pixel nặng vẫn chạy trên main thread; PDF và OCR có worker riêng.
+- Hiệu năng phụ thuộc CPU/RAM của thiết bị người dùng.
+- Không có tài khoản, lưu lịch sử hoặc đồng bộ thiết bị.
+- GitHub Pages không áp dụng custom HTTP security headers của Next.js.
+- OCR có thể cần tải model ngôn ngữ và không đảm bảo chính xác tuyệt đối.

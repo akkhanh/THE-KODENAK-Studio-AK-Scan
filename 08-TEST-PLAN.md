@@ -1,66 +1,94 @@
-# Test Plan
+# Kế hoạch kiểm thử AK Scan
 
 ## 1. Mục tiêu
 
-Xác nhận chất lượng scan/OCR, tính đúng của export, khả năng phục hồi và bảo mật dữ liệu. Test không được chỉ dựa trên ảnh đẹp.
+Xác nhận ứng dụng client-only nhập file an toàn, xử lý ảnh đúng, không làm mất nội dung quan trọng, xuất file mở được và hoạt động sau static export lên GitHub Pages.
 
-## 2. Các tầng test
+## 2. Kiểm tra tự động hiện có
 
-- Unit: corner ordering, transforms, settings mapping, quota, authorization policy.
-- Component: image pipeline, OCR normalization, PDF/DOCX generation.
-- Integration: Postgres, Redis, object storage, Celery job lifecycle.
-- Contract: OpenAPI và frontend client.
-- E2E: upload → edit → OCR → export → download → delete.
-- Performance: upload concurrency, queue, worker memory, tài liệu 20 trang.
-- Security: IDOR, file validation, rate limit, presigned URL và log leakage.
+- `npm run lint`: ESLint toàn source và test.
+- `npm run typecheck`: TypeScript không emit.
+- `npm run build`: Next.js production build.
+- `npm test` / `npm run test:scan`: unit test các hàm scan thuần và Canvas mock.
+- `scripts/test-security.ts`: magic bytes, filename/text sanitizer và timeout.
+- `npm run security:audit`: dependency audit mức high.
 
-## 3. Ma trận ảnh
+GitHub Pages workflow hiện chạy lint, typecheck và static production build trước deploy.
 
-- Nền sáng/tối/tương tự màu giấy.
-- Góc xiên, xoay, thiếu một phần cạnh.
-- Bóng tay/điện thoại, glare, ánh sáng yếu.
-- Giấy trắng, vàng, cũ; trang sách cong.
-- Font nhỏ, tiếng Việt nhiều dấu, song ngữ.
-- Bảng, hóa đơn dài, chữ ký, con dấu.
-- HEIC iPhone và ảnh Android phổ biến.
-- File hỏng, giả extension, ảnh pixel cực lớn.
+## 3. Ma trận input và bảo mật
 
-## 4. Acceptance tests quan trọng
+| Ca kiểm thử | Kỳ vọng |
+|---|---|
+| HTML đổi tên `.jpg` | Bị từ chối bằng magic bytes |
+| PDF/ảnh rỗng hoặc hỏng | Báo lỗi, không tạo trang |
+| Ảnh trên 15 MB hoặc 24 MP | Bị từ chối |
+| PDF trên 40 MB | Bị từ chối trước parse |
+| Trên 20 trang | Chỉ nhận phần còn chỗ |
+| Tổng trên 160 triệu pixel | Bị từ chối và revoke URL mới |
+| PDF render/open quá 30 giây | Timeout và cleanup |
+| Filename chứa control/XSS | Hiển thị escaped và sanitized |
+| OCR text chứa null/XML entities | DOCX vẫn tạo được |
 
-### Upload
+## 4. Ma trận xử lý ảnh
 
-- 20 ảnh hợp lệ hoàn tất và giữ đúng thứ tự.
-- File sai/hỏng/quá limit trả lỗi rõ và không tạo job xử lý.
-- Retry upload không tạo page trùng khi cùng idempotency key.
+- Giấy trắng trên nền tối và nền gần màu giấy.
+- Ảnh xiên theo bốn hướng; góc nằm ngoài bounds.
+- Xoay 90/180/270 và fine rotation ±3°.
+- Baseline còn nghiêng sau perspective.
+- Trang sách cong, giấy phồng và đường bảng võng.
+- Bóng tay/điện thoại, glare, ánh sáng không đều.
+- Con dấu đỏ, chữ trong ô màu, bảng có header màu.
+- Trang trắng hoàn toàn, đen hoàn toàn và chữ rất mảnh.
 
-### Processing
+Với mỗi ca, so sánh original/enhanced/grayscale/bw và kiểm tra không mất chữ, dấu tiếng Việt, đường bảng hoặc vùng màu cần bảo toàn.
 
-- Manual corners tạo output đúng với normalized coordinates.
-- Thay settings tăng page version; kết quả job cũ không ghi đè.
-- Một page fail không xóa output page khác.
+## 5. OCR và Word
 
-### OCR/export
+- OCR Việt/Anh, dấu sắc/huyền/hỏi/ngã/nặng.
+- Text layer PDF có thể search/copy trong Chrome và Adobe Reader.
+- PDF có embedded text ưu tiên text gốc khi xuất Word.
+- OCR hai pass chọn confidence cao hơn.
+- Line/cell dưới 82 confidence được tô vàng.
+- Bảng 3×4, merged-look table và bảng có text nhiều dòng.
+- DOCX mở trong Microsoft Word, LibreOffice và Google Docs.
+- Con dấu không ngăn OCR phần chữ còn nhìn thấy.
 
-- Unicode tiếng Việt không lỗi font.
-- Search/copy text trong PDF hoạt động.
-- DOCX mở trong Word và Google Docs.
-- Thứ tự trang export đúng database.
+## 6. Export PDF
 
-### Security/retention
+- A4, Letter, fit-image.
+- Lề none/small/large.
+- Compact/balanced/high.
+- Trang portrait và landscape trong cùng tài liệu.
+- B&W dùng PNG, các chế độ khác dùng JPEG.
+- Đúng thứ tự sau drag/drop và không có trang rỗng 1×1.
 
-- User/guest khác không đọc, sửa, tải hoặc xóa resource.
-- URL hết hạn không tải được.
-- Delete xóa mọi artifact và cleanup có thể retry.
-- Log không chứa content/token/URL bí mật.
+## 7. Hiệu năng và bộ nhớ
 
-## 5. Performance baseline
+- 20 trang ảnh trung bình trên Chrome desktop.
+- Nhiều trang PDF raster 2.800 px.
+- Kéo slider liên tục và chuyển trang nhanh.
+- Dò mép 100 lần; cache không vượt 40 entry mỗi loại.
+- Xóa từng trang/xóa phiên và theo dõi Blob URL/memory.
+- Điện thoại RAM thấp: 3–5 trang, quality balanced.
 
-Định nghĩa máy/worker chuẩn trước benchmark. Ghi p50/p95/p99 cho preview, OCR, export; peak memory theo megapixel; throughput theo worker; queue wait. Không công bố SLA dựa trên máy dev.
+## 8. Cross-browser
 
-## 6. Release gate
+Ưu tiên: Chrome/Edge Windows, Chrome Android, Safari iOS/macOS và Firefox desktop. Kiểm tra File API, camera capture, WebP, Canvas memory, PDF worker, WASM OCR và download Blob.
 
-- Không còn lỗi severity critical/high mở.
-- E2E luồng chính pass trên Chrome desktop và Safari/Chrome mobile mục tiêu.
-- OCR/scan regression trong ngưỡng đã chốt.
-- Cleanup và authorization suite pass 100%.
-- Load test đạt tải beta dự kiến với headroom.
+## 9. GitHub Pages acceptance
+
+Workflow phải tạo `out/index.html`, `out/.nojekyll` và `out/pdf.worker.min.mjs`. Kiểm tra hai kiểu URL:
+
+- User site: `https://user.github.io/` không có base path.
+- Project site: `https://user.github.io/repository/` có prefix cho `/_next` và PDF worker.
+
+Sau deploy chạy smoke test: nhập ảnh, nhập PDF, chọn enhanced, OCR một trang, xuất PDF và Word.
+
+## 10. Release gate
+
+- Lint, typecheck và production/static build pass.
+- Không có dependency vulnerability critical/high.
+- Magic-byte/security tests pass.
+- Smoke test ảnh/PDF/OCR/export pass trên Chrome desktop.
+- Không có regression làm mất chữ hoặc bảng trong bộ ảnh chuẩn.
+- README, kiến trúc, pipeline, security và test plan khớp source.

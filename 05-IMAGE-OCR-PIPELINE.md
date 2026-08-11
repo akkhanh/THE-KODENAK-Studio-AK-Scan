@@ -1,87 +1,80 @@
 # Pipeline xử lý ảnh và OCR
 
-## 1. Mục tiêu chất lượng
+## 1. Mục tiêu
 
-Trang thẳng, crop đúng, nền sáng đều, chữ rõ nhưng không mất dấu tiếng Việt, chữ ký, con dấu hoặc đường bảng. Mọi kết quả phải tái tạo được từ ảnh gốc + settings + pipeline version.
+Biến ảnh chụp/PDF thành trang scan thẳng, nền sạch, chữ rõ và giữ được bảng, vùng màu hoặc con dấu khi chế độ cho phép. Mọi thao tác diễn ra cục bộ trong trình duyệt.
 
-## 2. Pipeline ảnh
+## 2. Pipeline render trang
 
-1. Validate magic bytes, decode an toàn, dimension và pixel count.
-2. Đọc orientation EXIF rồi loại metadata không cần thiết.
-3. Tạo ảnh làm việc đã giới hạn cạnh dài.
-4. Detect document contour và confidence.
-5. Sắp thứ tự bốn góc và perspective transform.
-6. Denoise có kiểm soát.
-7. Ước lượng illumination/background.
-8. Shadow removal và white balance.
-9. Local contrast enhancement.
-10. Filter: color, grayscale hoặc adaptive black/white.
-11. Sharpen, morphological cleanup nhẹ.
-12. Quality assessment và encode artifact.
+`renderPage(page, maxEdge)` trong `lib/scan.ts` thực hiện:
 
-## 3. Corner detection MVP
+1. Decode Blob URL thành ảnh.
+2. Clamp và sắp thứ tự bốn góc.
+3. Perspective warp bằng lưới tam giác cục bộ.
+4. Nếu bật dewarp: đo độ lệch baseline theo các dải dọc, làm mượt đường cong và dịch dải về cùng đường cơ sở.
+5. Auto deskew từ gradient dòng chữ, cộng thêm `fineRotation` do người dùng chỉnh.
+6. Xoay 0/90/180/270 độ.
+7. Giới hạn kích thước đầu ra theo `maxEdge`.
+8. Chạy filter và trả Canvas.
 
-- Grayscale → blur → edge detection → contours.
-- Ưu tiên quadrilateral lớn, convex, tỷ lệ/diện tích hợp lý.
-- Trả normalized coordinates và confidence.
-- Không tự áp dụng kết quả confidence thấp; UI yêu cầu chỉnh tay.
-- Manual corners luôn thắng auto detection.
+## 3. Dò mép tài liệu
 
-## 4. Filter settings
+`detectDocumentCorners` downscale ảnh, chuyển grayscale, tính gradient/edge và tìm các đường biên ứng viên. Giao điểm được chấm điểm theo diện tích, convexity, tỷ lệ và độ mạnh cạnh.
 
-Các giá trị API normalized theo thang được schema quy định. Worker map sang tham số thuật toán theo `pipeline_version`.
+Kết quả gồm bốn tọa độ chuẩn hóa và confidence. UI chỉ tự áp dụng khi confidence từ 0,58; nếu thấp sẽ giữ góc hiện tại và yêu cầu người dùng kiểm tra tay.
 
-- `brightness`
-- `contrast`
-- `whiten_background`
-- `remove_shadow`
-- `denoise`
-- `sharpen`
-- `threshold_strength`
+## 4. Cân thẳng và làm phẳng
 
-Preset không được ghi đè settings người dùng đã chỉnh nếu không có xác nhận.
+- Auto deskew lấy profile gradient ngang và tìm góc có score tốt nhất.
+- `fineRotation` cho phép chỉnh thêm từ −3° đến +3°.
+- Dewarp chia trang thành 16–28 vùng để ước lượng độ lệch dòng; output chia đến 120 dải dọc để hiệu chỉnh mượt.
+- Skew và curvature cache tối đa 40 entry để tránh tính lại liên tục.
 
-## 5. Quality checks
+Dewarp phù hợp độ cong vừa và dạng hình trụ. Trang sách cong mạnh sát gáy vẫn có thể cần mô hình mesh 2D/deep learning trong tương lai.
 
-- Blur score.
-- Glare/overexposure ratio.
-- Shadow non-uniformity.
-- Crop completeness/confidence.
-- Text-size estimate.
-- Output foreground ratio để phát hiện trang trắng/chữ bị dính.
+## 5. Các chế độ filter
 
-Quality warning không tự động chặn export trừ khi file không thể decode hoặc vượt giới hạn an toàn.
+- `original`: giữ nguyên màu và không áp dụng các slider làm sạch.
+- `enhanced`: chuẩn hóa bóng/nền cục bộ, tăng sáng và tương phản nhưng giữ màu quan trọng.
+- `grayscale`: bỏ màu sau bước loại bóng và cân nền.
+- `bw`: phân ngưỡng trắng/đen có bảo vệ vùng màu để hạn chế mất chữ trong ô màu.
 
-## 6. OCR
+Slider hiện tại: brightness, contrast, whiten, removeShadow và sharpen. Preset không-original bắt đầu ở 8/22/20/28/18 nhưng có thể chỉnh từng trang hoặc áp dụng settings cho mọi trang.
 
-`OCRProvider.recognize(image, languages) -> NormalizedOCRResult`.
+## 6. Làm sạch nền
 
-Kết quả chuẩn hóa gồm full text, blocks, lines, words, bounding polygons, confidence, reading order, language và engine version. PaddleOCR là provider mặc định; provider cloud chỉ được dùng khi chính sách sản phẩm và consent cho phép.
+Shadow removal dùng ảnh grayscale và background map cục bộ để giảm bóng không đều. Whiten đẩy vùng sáng về trắng; contrast và brightness được áp dụng sau normalization. Sharpen dùng kernel cục bộ với giá trị được clamp tự nhiên bởi `Uint8ClampedArray`.
 
-## 7. OCR preprocessing
+## 7. Đánh giá chất lượng
 
-- OCR dùng processed image phù hợp, nhưng có thể chọn grayscale thay vì binary nếu binary làm mất nét.
-- Benchmark ít nhất ba biến thể preprocessing.
-- Deskew nhỏ sau perspective nếu text baseline vẫn nghiêng.
-- Không tự sửa tên, số tài khoản, mã số, ngày hoặc số tiền dựa trên phỏng đoán.
+`analyzeImageQuality` lấy mẫu ảnh nhỏ để đánh giá kích thước và sharpness. Cảnh báo được hiển thị ở thumbnail và bảng điều khiển. Quality warning không tự chặn export.
 
-## 8. Searchable PDF
+## 8. OCR và searchable PDF
 
-- Ảnh processed là lớp hiển thị.
-- Text OCR được scale từ tọa độ ảnh sang tọa độ PDF.
-- Lớp text trong suốt, Unicode Việt và có reading order hợp lý.
-- Test copy/paste, search, rotate và nhiều khổ trang.
+Tesseract.js tạo worker với hai ngôn ngữ `vie` và `eng`. Với searchable PDF:
 
-## 9. DOCX
+1. Render từng trang theo chất lượng xuất.
+2. Tesseract nhận dạng và sinh PDF có text layer.
+3. pdf-lib nạp PDF từng trang và ghép vào tài liệu cuối.
+4. Worker được terminate trong `finally`.
 
-MVP ưu tiên chỉnh sửa: paragraph, heading heuristic, list, page break và simple table. Vùng không thể tái tạo có thể chèn ảnh. Không cam kết pixel-perfect.
+Tiến độ OCR được ánh xạ vào progress tổng. Người dùng có thể yêu cầu hủy; việc hủy được kiểm tra giữa các trang.
 
-## 10. Benchmark dataset
+## 9. Xuất Word
 
-Trước beta cần 200–500 trang đã được phép sử dụng: tài liệu Việt/Anh, font nhỏ, bảng, hóa đơn, giấy cũ, bóng, mờ, dấu/chữ ký. Tách train/tuning và holdout; báo CER, WER, latency, memory, failure rate theo nhóm ảnh.
+- Nếu PDF có embedded text hợp lệ, dùng text đó để giảm sai OCR.
+- Nếu không, OCR grayscale đã tăng removeShadow/whiten.
+- Nếu confidence dưới 94, chạy thêm enhanced pass và chọn kết quả confidence cao hơn.
+- Line confidence dưới 82 được tô vàng trong DOCX.
+- `detectTableGrid` tìm các đường ngang/dọc; word được đưa vào cell theo tâm bounding box.
+- Output ưu tiên đúng chữ và tái tạo bảng đơn giản, không cam kết pixel-perfect.
 
-## 11. Golden tests
+Mọi text trước khi vào DOCX đều được loại null byte, control character và lone surrogate.
 
-- Lưu input đã ẩn dữ liệu và expected corners/text/output metrics.
-- So sánh thay đổi pipeline theo ngưỡng, không chỉ pixel-perfect.
-- Mọi thay đổi `pipeline_version` phải chạy regression benchmark.
+## 10. Export PDF ảnh
+
+Hỗ trợ A4, Letter hoặc vừa ảnh; lề 0/8/15 mm; chất lượng compact/balanced/high. Trang trắng đen dùng PNG lossless, các filter khác dùng JPEG theo quality đã chọn.
+
+## 11. Hướng kiểm thử chất lượng
+
+Golden dataset nên bao gồm tài liệu Việt/Anh, bảng, con dấu, ô màu, nền tối, bóng, ảnh nghiêng, trang cong và PDF đã nén. Chỉ số cần theo dõi: corner confidence, skew residual, foreground loss, OCR confidence/CER và peak memory.

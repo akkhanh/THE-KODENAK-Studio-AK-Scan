@@ -1,5 +1,39 @@
-node_modules
-.next
-out
+# Dependencies and generated output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
 *.log
+coverage/
+
+# Local operating-system files
 .DS_Store
+Thumbs.db
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Codex, agent and design workspaces: keep on laptop only
+.agents/
+.codex/
+.codex-artifacts/
+.hallmark/
+.specify/
+design-system/
+AGENTS.md
+CLAUDE.md
+
+# Internal planning documents: keep on laptop only
+01-PRD.md
+03-API-SPEC.md
+04-DATABASE.md
+07-ENGINEERING-GUIDE.md
+09-MVP-BACKLOG.md
+10-DEPLOYMENT-RUNBOOK.md
+11-DECISIONS-AND-OPEN-QUESTIONS.md
+
+# OCR models currently unused at repository root
+eng.traineddata
+vie.traineddata

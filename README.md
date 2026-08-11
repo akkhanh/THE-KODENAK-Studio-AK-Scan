@@ -1,42 +1,47 @@
-# AK Scan — Bộ tài liệu khởi động dự án
+# AK Scan
 
-AK Scan là website biến ảnh chụp tài liệu thành bản scan sạch và xuất PDF, searchable PDF, Word hoặc TXT.
+AK Scan biến ảnh chụp hoặc PDF thành bản scan sạch ngay trong trình duyệt: dò mép, sửa phối cảnh, cân nghiêng, làm phẳng giấy cong, xóa bóng, tăng nét, OCR Việt/Anh và xuất PDF/DOCX.
 
-## Thứ tự đọc
+## Điểm chính
 
-1. [01-PRD.md](01-PRD.md) — phạm vi và yêu cầu sản phẩm.
-2. [02-ARCHITECTURE.md](02-ARCHITECTURE.md) — kiến trúc và quyết định công nghệ.
-3. [03-API-SPEC.md](03-API-SPEC.md) — hợp đồng API MVP.
-4. [04-DATABASE.md](04-DATABASE.md) — mô hình dữ liệu.
-5. [05-IMAGE-OCR-PIPELINE.md](05-IMAGE-OCR-PIPELINE.md) — pipeline scan và OCR.
-6. [06-SECURITY-PRIVACY.md](06-SECURITY-PRIVACY.md) — bảo mật, riêng tư và lưu trữ.
-7. [07-ENGINEERING-GUIDE.md](07-ENGINEERING-GUIDE.md) — cấu trúc repo và quy ước phát triển.
-8. [08-TEST-PLAN.md](08-TEST-PLAN.md) — chiến lược kiểm thử và nghiệm thu.
-9. [09-MVP-BACKLOG.md](09-MVP-BACKLOG.md) — epic, user story và thứ tự triển khai.
-10. [10-DEPLOYMENT-RUNBOOK.md](10-DEPLOYMENT-RUNBOOK.md) — môi trường, triển khai và vận hành.
-11. [11-DECISIONS-AND-OPEN-QUESTIONS.md](11-DECISIONS-AND-OPEN-QUESTIONS.md) — quyết định đã chốt và câu hỏi còn mở.
+- Xử lý cục bộ; không upload tài liệu lên backend.
+- Hỗ trợ JPG, PNG, WebP, PDF và camera.
+- Original, enhanced, grayscale và black/white.
+- Searchable PDF bằng Tesseract.js + pdf-lib.
+- Word có paragraph, đánh dấu OCR confidence thấp và dựng bảng đơn giản.
+- Deploy tự động lên GitHub Pages.
+- Miễn phí; bản quyền akkhanh — THE KODENAK.
 
-## Stack MVP đã chốt
+## Chạy local
 
-- Frontend: Next.js + TypeScript.
-- API: Python + FastAPI.
-- Xử lý ảnh: OpenCV, Pillow, NumPy.
-- OCR: PaddleOCR qua lớp provider độc lập.
-- Tác vụ nền: Celery + Redis.
-- Database: PostgreSQL.
-- File: S3-compatible object storage (Cloudflare R2 hoặc Amazon S3).
-- PDF: PyMuPDF.
-- Word: python-docx.
-- Đóng gói: Docker.
+```bash
+npm ci
+npm run dev
+```
 
-## Definition of Ready để bắt đầu code
+Mở `http://localhost:3000`.
 
-- Đọc và chốt các câu hỏi P0 trong file 11.
-- Chuẩn bị tối thiểu 50 ảnh mẫu nội bộ, không chứa dữ liệu nhạy cảm thật.
-- Tạo repo, môi trường local và CI.
-- Chốt object storage cho dev/staging.
-- Chốt giới hạn file/trang của MVP.
+## Kiểm tra
 
-## Definition of Done của MVP
+```bash
+npm run lint
+npm run typecheck
+npm run build
+npm test
+npm run security:audit
+```
 
-Người dùng có thể tải tối đa 20 ảnh, chỉnh bốn góc, làm sạch trang, sắp xếp trang, OCR tiếng Việt/Anh và tải PDF, searchable PDF, DOCX hoặc TXT. Tài liệu khách được tự động xóa đúng hạn và không thể bị truy cập chéo.
+## Deploy GitHub Pages
+
+Push lên nhánh `main`, sau đó vào **Settings → Pages → Source: GitHub Actions**. Workflow `.github/workflows/deploy-pages.yml` tự nhận tên repository, static export và deploy thư mục `out`.
+
+## Tài liệu kỹ thuật
+
+- [Kiến trúc](02-ARCHITECTURE.md)
+- [Pipeline ảnh và OCR](05-IMAGE-OCR-PIPELINE.md)
+- [Bảo mật và quyền riêng tư](06-SECURITY-PRIVACY.md)
+- [Kế hoạch kiểm thử](08-TEST-PLAN.md)
+
+## Giới hạn
+
+Tối đa 20 trang, 15 MB/24 MP mỗi ảnh, 40 MB mỗi PDF và 160 triệu pixel mỗi phiên. OCR và khôi phục bố cục không đảm bảo chính xác tuyệt đối; luôn kiểm tra với tài liệu gốc.
