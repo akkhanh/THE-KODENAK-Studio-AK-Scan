@@ -1,0 +1,5 @@
+{
+  "date": "2026-08-11",
+  "signals": "Empty project: no existing framework, fonts, palette, tokens, or motion library.",
+  "introduced": ["Next.js", "TypeScript", "Cobalt tokens", "motion-cut"]
+}
