@@ -1,77 +1,49 @@
 # AK Scan
 
-> Biến ảnh chụp tài liệu và PDF thành bản scan trắng sáng, rõ chữ — xử lý hoàn toàn ngay trên thiết bị.
+> Quét ảnh tài liệu, tạo PDF scan và chuyển PDF tài liệu sang Word ngay trên thiết bị.
 
-**AK Scan** là công cụ scan tài liệu chạy trực tiếp trong trình duyệt. Ứng dụng có thể nhận ảnh từ máy tính, camera hoặc PDF; sau đó tự dò mép giấy, sửa góc nghiêng, làm sạch nền và xuất thành PDF hoặc Word.
+AK Scan là ứng dụng client-only: ảnh, PDF và nội dung OCR được xử lý trong trình duyệt, không có API upload và không lưu tài liệu lên máy chủ.
 
-Không cần đăng ký. Không cần backend. Tài liệu không bị tải lên máy chủ.
+## Ba workflow
 
----
+1. **Ảnh chụp tài liệu → PDF scan**: tự dò bốn góc, nắn phối cảnh, làm sạch nền, khử bóng và tăng nét.
+2. **PDF chứa ảnh scan → PDF scan**: tách từng trang rồi chạy cùng pipeline xử lý như ảnh chụp.
+3. **PDF tài liệu có lớp chữ → Word chỉnh sửa**: đọc trực tiếp lớp chữ, khôi phục đoạn, heading, danh sách và bảng; không OCR lại khi lớp chữ dùng được.
 
-## Tính năng nổi bật
+## Tính năng
 
-### Làm sạch và căn chỉnh tài liệu
+- Hỗ trợ JPG, PNG, WebP, PDF và camera trên thiết bị tương thích.
+- Căn chỉnh tự động hoặc chỉnh tay bốn góc; hỗ trợ làm phẳng giấy cong.
+- Bộ lọc màu gốc, tăng cường, xám và trắng đen; chỉnh sáng, tương phản, trắng nền, khử bóng và sắc nét.
+- OCR tiếng Việt và tiếng Anh (`eng+vie`) với nhiều lượt đối chiếu để ưu tiên độ chính xác.
+- Xuất PDF scan, PDF có thể tìm kiếm và DOCX chỉnh sửa.
+- Giữ bố cục PDF có lớp chữ: đoạn văn, heading, danh sách, bảng và căn đều hai lề.
+- Mục lục cố định, giao diện responsive, hỗ trợ thu phóng Firefox bằng `transform: scale()`.
+- Favicon, Apple Touch Icon, Web App Manifest, Open Graph/Twitter Card và `robots.txt`.
 
-- Tự động dò bốn mép trang giấy.
-- Sửa phối cảnh của ảnh chụp bị méo góc.
-- Cân thẳng tài liệu bị nghiêng.
-- Hỗ trợ làm phẳng giấy cong hoặc trang sách bị phồng.
-- Xóa bóng, làm trắng nền và tăng độ rõ của chữ.
-- Cho phép chỉnh tay bốn góc khi kết quả tự động chưa phù hợp.
+## Riêng tư và bảo mật
 
-### Nhiều chế độ hiển thị
+- Không cần tài khoản hoặc backend.
+- Tài liệu chỉ nằm trong bộ nhớ phiên trình duyệt của người dùng.
+- Tesseract, WASM, dữ liệu ngôn ngữ và worker được đóng gói nội bộ; đường dẫn OCR tôn trọng `basePath` khi deploy GitHub Pages.
+- Kiểm tra magic bytes cho JPG, PNG, WebP và PDF; làm sạch ký tự điều khiển trước khi tạo PDF/DOCX.
+- Blob URL được thu hồi khi xóa trang hoặc đóng phiên.
 
-- **Màu gốc:** giữ màu sắc của tài liệu.
-- **Tăng cường:** làm sạch nền nhưng vẫn bảo toàn màu, bảng và con dấu.
-- **Xám:** loại bỏ màu và giảm bóng nền.
-- **Trắng đen:** đưa tài liệu về hai màu, phù hợp với văn bản cần in rõ nét.
+> Ảnh và PDF được xử lý hoàn toàn trên thiết bị của bạn, không tải lên máy chủ.
 
-### OCR và xuất tài liệu
-
-- Nhận dạng văn bản tiếng Việt và tiếng Anh.
-- Tạo PDF có thể tìm kiếm và sao chép chữ.
-- Xuất DOCX với đoạn văn và bảng dữ liệu cơ bản.
-- Đánh dấu những vùng OCR có độ tin cậy thấp để dễ kiểm tra.
-- Xuất nhiều trang theo đúng thứ tự thành một file PDF khổ A4.
-
-### Ảnh và PDF đầu vào
-
-- Hỗ trợ JPG, PNG, WebP và PDF.
-- Chụp trực tiếp bằng camera trên thiết bị tương thích.
-- Kéo thả nhiều trang, sắp xếp lại hoặc xóa từng trang.
-- Ảnh và trang PDF đi qua cùng một quy trình xử lý để cho kết quả nhất quán.
-
----
-
-## Riêng tư theo thiết kế
-
-Toàn bộ quá trình đọc file, xử lý ảnh, OCR và tạo tài liệu được thực hiện trong trình duyệt của người dùng.
-
-- Không có máy chủ nhận tài liệu.
-- Không lưu nội dung ảnh hoặc PDF lên đám mây.
-- Không yêu cầu tài khoản.
-- Có thể xóa phiên hiện tại để giải phóng toàn bộ tài liệu đang mở.
-
-> Trình duyệt vẫn cần tải mã nguồn và các thư viện của ứng dụng khi mở trang. Nội dung tài liệu chỉ được xử lý cục bộ trên thiết bị.
-
----
-
-## Cách sử dụng
+## Sử dụng
 
 1. Chọn ảnh, PDF hoặc mở camera.
-2. Kiểm tra vùng giấy được tự động nhận diện.
-3. Chỉnh lại bốn góc nếu cần.
-4. Chọn chế độ màu và điều chỉnh độ sáng, tương phản, trắng nền, xóa bóng, sắc nét.
-5. Sắp xếp thứ tự các trang.
-6. Xuất PDF scan, PDF có thể tìm kiếm hoặc DOCX.
+2. Kiểm tra vùng giấy và chỉnh bốn góc nếu cần.
+3. Chọn bộ lọc và tinh chỉnh ảnh.
+4. Chọn đầu ra PDF, PDF tìm kiếm hoặc Word chỉnh sửa.
+5. Kiểm tra kết quả với bản gốc trước khi sử dụng cho tài liệu quan trọng.
 
-Để có kết quả tốt nhất, hãy đặt tài liệu trên nền tương phản, giữ camera song song với mặt giấy và tránh ánh sáng chiếu trực tiếp gây lóa.
+Ảnh phẳng, đủ sáng, camera song song mặt giấy và bốn góc được căn chính xác sẽ cho OCR tốt hơn.
 
----
+## Chạy local
 
-## Chạy dự án trên máy
-
-Yêu cầu: **Node.js 20 trở lên** và npm.
+Yêu cầu Node.js 20+ và npm.
 
 ```bash
 git clone https://github.com/akkhanh/THE-KODENAK-Studio-AK-Scan.git
@@ -80,7 +52,7 @@ npm ci
 npm run dev
 ```
 
-Sau đó mở [http://localhost:3000](http://localhost:3000).
+Mở [http://localhost:3000](http://localhost:3000).
 
 ## Kiểm tra chất lượng
 
@@ -88,47 +60,49 @@ Sau đó mở [http://localhost:3000](http://localhost:3000).
 npm run lint
 npm run typecheck
 npm test
-npm run security:audit
 npm run build
 ```
 
-## Công nghệ sử dụng
+GitHub Actions chạy lint, typecheck và toàn bộ test trước khi build static site.
 
-- Next.js và React
-- Canvas API
-- PDF.js, pdf-lib và jsPDF
-- Tesseract.js
-- docx
+## Deploy GitHub Pages
 
-Ứng dụng được thiết kế theo mô hình client-only và có thể xuất thành website tĩnh.
+Repository đã có workflow tại `.github/workflows/deploy-pages.yml`.
 
----
+1. Vào **Settings → Pages** và chọn **GitHub Actions**.
+2. Push lên nhánh `main` hoặc chạy workflow thủ công.
+3. Với repository này, URL dự kiến là:
+   `https://akkhanh.github.io/THE-KODENAK-Studio-AK-Scan/`
 
-## Giới hạn xử lý
+Nếu dùng tên miền riêng, cấu hình `NEXT_PUBLIC_SITE_URL` và thêm `public/CNAME` chứa tên miền chính thức.
 
-| Loại giới hạn | Mức hiện tại |
+## Giới hạn hiện tại
+
+| Giới hạn | Mức tối đa |
 | --- | ---: |
-| Số trang mỗi phiên | Tối đa 20 trang |
-| Dung lượng mỗi ảnh | Tối đa 15 MB |
-| Độ phân giải mỗi ảnh | Tối đa 24 MP |
-| Dung lượng mỗi PDF | Tối đa 40 MB |
-| Tổng số pixel mỗi phiên | Tối đa 160 triệu pixel |
+| Số trang mỗi phiên | 20 |
+| Dung lượng mỗi ảnh | 15 MB |
+| Độ phân giải mỗi ảnh | 24 MP |
+| Dung lượng mỗi PDF | 40 MB |
+| Tổng pixel mỗi phiên | 160 triệu |
 
-Chất lượng OCR phụ thuộc vào độ nét, ánh sáng, kiểu chữ và ngôn ngữ của tài liệu. Với hợp đồng, hóa đơn hoặc hồ sơ quan trọng, nên đối chiếu kết quả với bản gốc trước khi sử dụng.
+## Công nghệ
+
+- Next.js 16 và React 19
+- Canvas API và Offscreen-friendly rendering pipeline
+- PDF.js, pdf-lib, jsPDF
+- Tesseract.js với dữ liệu `eng` và `vie` nội bộ
+- `docx` cho Word chỉnh sửa
 
 ## Tài liệu kỹ thuật
 
 - [Kiến trúc hệ thống](02-ARCHITECTURE.md)
-- [Pipeline xử lý ảnh và OCR](05-IMAGE-OCR-PIPELINE.md)
+- [Pipeline ảnh và OCR](05-IMAGE-OCR-PIPELINE.md)
 - [Bảo mật và quyền riêng tư](06-SECURITY-PRIVACY.md)
 - [Kế hoạch kiểm thử](08-TEST-PLAN.md)
 
----
-
 ## Tác giả và bản quyền
 
-Phát triển bởi **akkhanh — THE KODENAK**.
+Phát triển bởi **akkhanh — THE KODENAK**. Dự án được phát hành miễn phí trên GitHub; vui lòng giữ thông tin tác giả khi sử dụng, chỉnh sửa hoặc chia sẻ lại.
 
-Dự án được phát hành miễn phí trên GitHub. Vui lòng giữ thông tin tác giả khi sử dụng, chỉnh sửa hoặc chia sẻ lại dự án.
-
-© 2026 akkhanh — THE KODENAK. All rights reserved.
+© 2026 akkhanh — THE KODENAK.
