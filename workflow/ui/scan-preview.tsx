@@ -60,7 +60,7 @@ export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { 
   }
 
   function zoomOut() {
-    setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100));
+    setZoom((z) => Math.max(window.matchMedia("(max-width: 720px)").matches ? 1 : 0.5, Math.round((z - 0.25) * 100) / 100));
   }
 
   function resetZoom() {
@@ -142,7 +142,7 @@ export function ScanPreview({ page, editing, showOriginal, onCornersChange }: { 
 
         <input
           type="range"
-          min={50}
+          min={typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches ? 100 : 50}
           max={300}
           step={5}
           value={Math.round(zoom * 100)}
