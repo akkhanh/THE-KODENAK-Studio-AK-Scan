@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+﻿import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV === "development";
 const isGitHubPages = process.env.GITHUB_ACTIONS === "true";
@@ -11,7 +11,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
-  "connect-src 'self' blob: data: https://cdn.jsdelivr.net",
+  "connect-src 'self' blob: data:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -38,3 +38,4 @@ const nextConfig: NextConfig = {
   ...(isGitHubPages ? {} : { async headers() { return [{ source: "/:path*", headers: securityHeaders }]; } }),
 };
 export default nextConfig;
+

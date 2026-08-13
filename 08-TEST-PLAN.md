@@ -44,10 +44,22 @@ Với mỗi ca, so sánh original/enhanced/grayscale/bw và kiểm tra không m�
 
 ## 5. OCR và Word
 
+Automated quality gate: `npm run test:ocr-quality` measures normalized character error rate (CER) and word error rate (WER) using pure edit-distance calculations. Its checked-in golden cases cover Vietnamese diacritics, English prose, legitimate numbers/punctuation, and the standalone spurious-token failure seen in scanned pages. Candidate output must stay below each case threshold and must not regress against a stored baseline without an explicit tolerance.
+
+`npm run test:pdf-to-word` is the in-memory DOCX contract gate. It validates text-layer and scan/OCR inputs, then inspects the generated OOXML package for editable text, Heading2 styles, real list numbering, tables, image media, page breaks, Vietnamese/English text and XML-safe special characters. This protects against regressions that turn a Word export into a flattened image or plain unstructured text.
+
 - OCR Việt/Anh, dấu sắc/huyền/hỏi/ngã/nặng.
 - Text layer PDF có thể search/copy trong Chrome và Adobe Reader.
 - PDF có embedded text ưu tiên text gốc khi xuất Word.
 - OCR hai pass chọn confidence cao hơn.
+- Tài liệu tiếng Anh một cột không sinh thêm số hoặc ký hiệu đơn lẻ xen giữa câu.
+- Nhiễu màu nhạt ở lề/trên đầu trang không trở thành nội dung OCR.
+- Token confidence thấp, quá nhỏ hoặc lệch baseline được lọc nhưng không làm mất dấu câu hợp lệ.
+- Chữ số hợp lệ như `11 p.m.`, tiêu đề đánh số và mã tài liệu không bị bộ lọc ký tự rác xóa nhầm.
+- OCR tiếng Anh dùng `eng` không kém hơn `vie+eng`; OCR tiếng Việt vẫn giữ đầy đủ dấu.
+- Trang nhiều cột giữ đúng thứ tự đọc; không nối cuối cột trái vào đầu dòng cột phải.
+- Pass OCR thứ hai chỉ chạy cho trang/vùng chưa đạt quality gate.
+- So sánh CER/WER trước và sau thay đổi trên cùng golden dataset; không chấp nhận cải thiện một nhóm tài liệu bằng cách làm giảm rõ rệt nhóm khác.
 - Line/cell dưới 82 confidence được tô vàng.
 - Bảng 3×4, merged-look table và bảng có text nhiều dòng.
 - DOCX mở trong Microsoft Word, LibreOffice và Google Docs.

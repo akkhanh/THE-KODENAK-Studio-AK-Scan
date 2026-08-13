@@ -78,3 +78,52 @@ Hỗ trợ A4, Letter hoặc vừa ảnh; lề 0/8/15 mm; chất lượng compac
 ## 11. Hướng kiểm thử chất lượng
 
 Golden dataset nên bao gồm tài liệu Việt/Anh, bảng, con dấu, ô màu, nền tối, bóng, ảnh nghiêng, trang cong và PDF đã nén. Chỉ số cần theo dõi: corner confidence, skew residual, foreground loss, OCR confidence/CER và peak memory.
+
+## 12. Kế hoạch cải thiện độ chính xác OCR
+
+Mục tiêu là giảm cả hai nhóm lỗi: ký tự rác được chèn thêm và chữ thật bị bỏ sót. Không dùng confidence toàn trang làm tiêu chí duy nhất vì một trang có confidence cao vẫn có thể chứa nhiều ký tự đơn lẻ sai.
+
+### 12.1. Phân loại đầu vào trước OCR
+
+- PDF có text layer hợp lệ dùng text và tọa độ gốc từ PDF.js, không OCR lại toàn trang.
+- Trang scan được phân loại sơ bộ theo ngôn ngữ, số cột, mật độ chữ và loại nội dung trước khi chọn cấu hình OCR.
+- Trang tiếng Anh chỉ dùng `eng`; trang tiếng Việt hoặc song ngữ mới dùng `vie+eng` để tránh tăng tập ký tự không cần thiết.
+- Chọn page segmentation mode theo bố cục: văn bản một cột, nhiều cột, vùng chữ rời hoặc bảng không dùng chung một cấu hình cố định.
+
+### 12.2. Tiền xử lý thích nghi
+
+- Đo DPI/kích thước chữ ước lượng và upscale khi chữ quá nhỏ.
+- Deskew trước OCR; không chạy OCR trên trang còn nghiêng đáng kể.
+- Cắt viền và vùng nhiễu ngoài nội dung, nhưng giữ khoảng trắng an toàn quanh chữ.
+- Tạo tối đa hai biến thể grayscale/binary có tham số thích nghi theo độ tương phản, thay vì ép mọi trang qua cùng mức whiten/removeShadow.
+- Chỉ chạy biến thể thứ hai trên trang hoặc vùng có chất lượng thấp.
+
+### 12.3. Chọn kết quả theo vùng
+
+- So sánh OCR theo dòng hoặc block, không chọn nguyên một pass chỉ bằng confidence toàn trang.
+- Với vùng bất đồng, ưu tiên kết quả có confidence từ, tính hợp lệ ngôn ngữ, trật tự đọc và khoảng cách hình học tốt hơn.
+- OCR lại riêng các dòng có confidence thấp bằng crop độ phân giải cao và page segmentation phù hợp.
+- Không chạy pass hai cho các vùng đã có kết quả tốt để giảm thời gian và RAM.
+
+### 12.4. Lọc ký tự rác an toàn
+
+- Dựng dòng từ danh sách word/symbol có bounding box; không đưa nguyên `line.text` vào Word.
+- Loại token confidence rất thấp nếu token chỉ là một ký tự bất thường, nằm lệch baseline, quá nhỏ hoặc cách xa các từ còn lại.
+- Không xóa máy móc chữ số, dấu câu hoặc ký tự tiếng Việt hợp lệ. Token thấp confidence nhưng phù hợp ngữ cảnh được giữ và đánh dấu cần kiểm tra.
+- Chuẩn hóa khoảng trắng, dấu câu lặp, ký tự điều khiển và các chuỗi rác phổ biến sau OCR.
+- Giữ bản OCR thô nội bộ trong phiên để có thể đối chiếu khi bộ lọc loại nhầm.
+
+### 12.5. Quality gate trước khi tạo Word
+
+- Tính confidence theo block/dòng và tỷ lệ token bị lọc.
+- Cảnh báo nếu trang có quá nhiều token thấp confidence, dòng mất cân đối hoặc số ký tự thay đổi bất thường giữa hai pass.
+- Word mặc định chỉ chứa kết quả đã lọc; vùng chưa chắc chắn được tô vàng theo từng từ thay vì tô cả dòng.
+- Cho phép người dùng chọn ngôn ngữ `Tự động`, `Tiếng Việt`, `Tiếng Anh`, hoặc `Việt + Anh` khi tự động nhận sai.
+
+### 12.6. Thứ tự triển khai
+
+1. Dựng lại text từ word-level OCR và lọc token rác có bảo toàn dấu câu.
+2. Chọn ngôn ngữ và page segmentation mode thích nghi.
+3. OCR lại theo vùng confidence thấp thay vì chạy lại toàn trang.
+4. Bổ sung phân tích nhiều cột, nhiều bảng và thứ tự đọc.
+5. Đo CER/WER, thời gian và peak memory trên golden dataset trước khi bật mặc định.

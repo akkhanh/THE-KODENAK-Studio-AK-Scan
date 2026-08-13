@@ -5,6 +5,7 @@ out/
 *.tsbuildinfo
 *.log
 coverage/
+test-fixtures/
 
 # Local operating-system files
 .DS_Store

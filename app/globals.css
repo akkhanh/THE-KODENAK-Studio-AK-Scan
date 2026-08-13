@@ -1,8 +1,10 @@
-@import "../styles/base.css";
-@import "../styles/home.css";
-@import "../styles/guide.css";
-@import "../styles/workspace.css";
-@import "../styles/export-dialog.css";
-@import "../styles/footer.css";
-@import "../styles/donate.css";
-@import "../styles/responsive.css";
+@import "../workflow/styles/base.css";
+@import "../workflow/styles/home.css";
+@import "../workflow/styles/guide.css";
+@import "../workflow/styles/workspace.css";
+@import "../workflow/styles/export-dialog.css";
+@import "../workflow/styles/footer.css";
+@import "../workflow/styles/donate.css";
+@import "../workflow/styles/responsive.css";
+
+

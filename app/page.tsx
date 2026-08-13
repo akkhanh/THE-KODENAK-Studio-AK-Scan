@@ -1,5 +1,6 @@
-import { ScanWorkspace } from "@/components/scan-workspace";
+import { ScanWorkspace } from "@/workflow/ui/scan-workspace";
 
 export default function Home() {
   return <ScanWorkspace />;
 }
+

@@ -1,13 +1,57 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const repositoryOwner = process.env.GITHUB_REPOSITORY_OWNER;
+const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1];
+const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+const siteUrl = configuredSiteUrl ?? (repositoryOwner && repositoryName
+  ? `https://${repositoryOwner}.github.io/${repositoryName}/`
+  : "http://localhost:3000/");
+
 export const metadata: Metadata = {
-  title: "AK Scan — Ảnh thành PDF scan",
-  description: "Làm trắng nền, tăng độ nét và ghép ảnh tài liệu thành PDF ngay trên thiết bị.",
+  metadataBase: new URL(siteUrl),
+  title: "AK Scan – Quét tài liệu, tạo PDF và chuyển PDF sang Word",
+  description: "Quét ảnh tài liệu, xử lý PDF scan và chuyển PDF có lớp chữ sang Word ngay trên thiết bị. Không tải tài liệu lên máy chủ.",
   authors: [{ name: "akkhanh — THE KODENAK" }],
   creator: "akkhanh — THE KODENAK",
+  applicationName: "AK Scan",
+  manifest: "site.webmanifest",
+  icons: {
+    icon: [{ url: "favicon.ico" }, { url: "favicon-32x32.png", type: "image/png", sizes: "32x32" }],
+    apple: [{ url: "apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
+  openGraph: {
+    type: "website",
+    locale: "vi_VN",
+    url: siteUrl,
+    siteName: "AK Scan",
+    title: "AK Scan – Quét tài liệu, tạo PDF và chuyển PDF sang Word",
+    description: "Xử lý ảnh và PDF hoàn toàn trên thiết bị, không tải tài liệu lên máy chủ.",
+    images: [{ url: "og-image.png", width: 1200, height: 630, alt: "AK Scan – Quét tài liệu và chuyển PDF sang Word" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AK Scan – Quét tài liệu và chuyển PDF sang Word",
+    description: "Xử lý cục bộ trên thiết bị, không tải tài liệu lên máy chủ.",
+    images: ["og-image.png"],
+  },
 };
 
+const staticContentSecurityPolicy = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' blob: data:",
+  "font-src 'self' data:",
+  "connect-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  ...(process.env.NODE_ENV === "development" ? [] : ["upgrade-insecure-requests"]),
+].join("; ");
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body>{children}</body></html>;
+  return <html lang="vi"><head><meta httpEquiv="Content-Security-Policy" content={staticContentSecurityPolicy} /></head><body>{children}</body></html>;
 }
+

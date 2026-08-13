@@ -1,0 +1,54 @@
+@media (min-width: 1100px) {
+  .home-guide,
+  .export-guide {
+    width: min(1120px, calc(100% - 440px));
+  }
+
+  .workbench {
+    width: min(1540px, calc(100% - 440px));
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 980px) {
+  .workbench { grid-template-columns: minmax(0, 1fr) 300px; }
+  .pages-panel { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--color-rule); }
+  .page-list { display: flex; overflow-x: auto; }
+  .page-row { min-width: 190px; }
+  .canvas-panel { grid-column: 1; }
+  .controls-panel { grid-column: 2; }
+  .steps-cards-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .hero-section { margin-top: 2.25rem; }
+  .hero-title { font-size: 2.1rem; }
+  .hero-subtitle { font-size: 0.95rem; }
+  .upload-zone-card { padding: 2.5rem 1.25rem 2rem; }
+  .upload-actions-grid { flex-direction: column; }
+  .button { width: 100%; }
+  .trust-stats-bar { grid-template-columns: 1fr; }
+  .steps-cards-grid { grid-template-columns: 1fr; }
+  .guide-hero { flex-direction: column; align-items: stretch; }
+  .guide-steps, .format-grid { grid-template-columns: 1fr; }
+  .limit-grid { grid-template-columns: repeat(2, 1fr); }
+  .terms-grid { grid-template-columns: 1fr; }
+  .privacy-flow { flex-direction: column; text-align: center; }
+  .workbench { width: 100%; border-left: 0; border-right: 0; border-radius: 0; grid-template-columns: minmax(0, 1fr); }
+  .pages-panel, .canvas-panel, .controls-panel { grid-column: 1; }
+  .controls-panel { border-left: 0; border-top: 1px solid var(--color-rule); max-height: none; overflow: visible; }
+  .export-box { position: static; }
+  .preview-stage { min-height: 400px; }
+  .preview-scroll-area { padding: var(--space-md) var(--space-md) 72px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+  }
+}
+

@@ -8,14 +8,19 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:scan": "tsx scripts/test-scan-logic.ts",
-    "test": "tsx scripts/test-scan-logic.ts",
+    "test:scan": "tsx workflow/scripts/test-scan-logic.ts",
+    "test:ocr-quality": "tsx workflow/scripts/test-ocr-quality.ts",
+    "test:ocr": "tsx workflow/scripts/test-ocr.ts",
+    "test:pdf-to-word": "tsx workflow/scripts/test-pdf-to-word-contract.ts",
+    "test:pdf-document": "tsx workflow/scripts/test-pdf-document.ts",
+    "test": "npm run test:scan && npm run test:ocr && npm run test:ocr-quality && npm run test:pdf-document && npm run test:pdf-to-word",
     "security:audit": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@pdf-lib/fontkit": "^1.1.1",
     "docx": "^9.7.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
@@ -36,3 +41,4 @@
     "typescript": "^5.7.2"
   }
 }
+
