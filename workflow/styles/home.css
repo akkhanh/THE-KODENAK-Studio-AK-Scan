@@ -460,10 +460,10 @@
   .page-toc {
     top: 0.55rem;
     right: 0.5rem;
-    left: 7.8rem;
+    left: 12.4rem;
     width: auto;
-    max-width: calc(100vw - 8.3rem);
-    padding: 0.25rem;
+    max-width: calc(100vw - 12.9rem);
+    padding: 0.18rem;
     transform: none;
     z-index: 55;
     border-radius: 12px;
@@ -477,7 +477,7 @@
   }
 
   .page-toc nav::-webkit-scrollbar { display: none; }
-  .page-toc a { flex: 0 0 34px; min-height: 34px; padding: 0.35rem; }
+  .page-toc a { flex: 0 0 28px; min-height: 28px; padding: 0.25rem; }
 }
 
 
