@@ -455,6 +455,29 @@
     width: 100%;
     justify-content: space-between;
   }
+
+  /* On phones the page TOC shares the topbar row with the brand. */
+  .page-toc {
+    top: 0.55rem;
+    right: 0.5rem;
+    left: 7.8rem;
+    width: auto;
+    max-width: calc(100vw - 8.3rem);
+    padding: 0.25rem;
+    transform: none;
+    z-index: 55;
+    border-radius: 12px;
+  }
+
+  .page-toc nav {
+    flex-direction: row;
+    gap: 0.15rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .page-toc nav::-webkit-scrollbar { display: none; }
+  .page-toc a { flex: 0 0 34px; min-height: 34px; padding: 0.35rem; }
 }
 
 
