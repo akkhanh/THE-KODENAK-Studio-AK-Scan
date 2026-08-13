@@ -143,6 +143,8 @@
   .dewarp-toggle { min-height: 44px; }
   .control-actions { margin-top: .8rem; }
   .export-box { position: static !important; margin-top: 1rem; }
+  .donate-floating-widget { right: .75rem; bottom: .75rem; z-index: 300; }
+  .donate-compact-indicator { min-height: 42px; padding: .5rem .75rem; font-size: .76rem; box-shadow: 0 6px 18px rgba(15,23,42,.2); }
 }
 
 @media (min-width: 801px) { .page-toc-mobile { display: none; } }
