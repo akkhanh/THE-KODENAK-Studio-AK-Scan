@@ -1,4 +1,4 @@
-import { chooseOcrCandidate, cleanOcrPageLines, deduplicateOcrLines, groupPdfTextItems, isSuspiciousOcrLine, joinWords, mergePositionedOcrLines, normalizeOcrText, postProcessOcrLine, recognizedTextLines, repairFragmentedOcrWords, scoreOcrCandidate, selectBestOcrLines } from "../shared/core/ocr";
+import { chooseOcrCandidate, cleanOcrPageLines, deduplicateOcrLines, groupPdfTextItems, isSuspiciousOcrLine, joinWords, mergePositionedOcrLines, normalizeOcrText, postProcessOcrLine, recognizedTextLines, repairFragmentedOcrWords, scoreOcrCandidate, selectBestOcrLines, structureOcrDocumentLines } from "../shared/core/ocr";
 
 let failed = 0;
 function test(name: string, fn: () => void) { try { fn(); console.log(`  [PASS] ${name}`); } catch (error) { failed++; console.error(`  [FAIL] ${name}: ${(error as Error).message}`); } }
@@ -125,6 +125,22 @@ test("filters a noise glyph after a fragmented word has been repaired", () => {
 test("content-first lines preserve OCR reading order without geometry", () => {
   const lines = recognizedTextLines("Hello everyone\nToday we're going to talk\n\nGoodbye!");
   expect(lines.join(" | "), "Hello everyone | Today we're going to talk | Goodbye!", "raw OCR line order must be authoritative");
+});
+test("structures OCR Word output instead of flattening the whole page", () => {
+  const blocks = structureOcrDocumentLines([
+    "PMG201c - Practical Exam 1 (Fall 2025)",
+    "You have created a unique niche consumer product,",
+    "and your task is to demonstrate its market viability.",
+    "Request 1 (20%): write a narrative charter statement",
+    "1. Project name,",
+    "2. Justifications and constraints.",
+    "Request 2 (20%): list five cost items.",
+  ]);
+  expect(blocks.length, 6, "logical paragraph count");
+  expect(blocks[0].kind, "title", "first short line becomes title");
+  expect(blocks[1].text, "You have created a unique niche consumer product, and your task is to demonstrate its market viability.", "wrapped prose lines merge");
+  expect(blocks[2].kind, "heading", "request becomes heading");
+  expect(blocks[3].kind, "list-item", "numbered item remains separate");
 });
 if (failed) process.exit(1);
 

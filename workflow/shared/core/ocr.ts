@@ -222,6 +222,31 @@ export function deduplicateOcrLines(lines: string[]) {
   return output;
 }
 
+export type StructuredOcrParagraph = { kind: "title" | "heading" | "list-item" | "paragraph"; text: string };
+
+/** Rebuild logical paragraphs from OCR visual lines instead of flattening a page into one bold block. */
+export function structureOcrDocumentLines(lines: string[]): StructuredOcrParagraph[] {
+  const result: StructuredOcrParagraph[] = [];
+  for (const raw of deduplicateOcrLines(lines)) {
+    const text = normalizeOcrText(raw);
+    if (!text) continue;
+    const kind: StructuredOcrParagraph["kind"] = /^request\s+\d+\s*\(\d+%\)/i.test(text)
+      ? "heading"
+      : /^\d+[.)]\s+/.test(text)
+        ? "list-item"
+        : result.length === 0 && text.length <= 180
+          ? "title"
+          : "paragraph";
+    const previous = result.at(-1);
+    if (kind === "paragraph" && previous?.kind === "paragraph") {
+      previous.text = normalizeOcrText(`${previous.text} ${text}`);
+    } else {
+      result.push({ kind, text });
+    }
+  }
+  return result;
+}
+
 export function isSuspiciousOcrLine(text: string, confidence: number) {
   const normalized = normalizeOcrText(text);
   return confidence < 84 || scoreOcrCandidate(normalized, confidence) < 80

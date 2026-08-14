@@ -16,7 +16,7 @@ import { HomeUpload } from "./home-upload";
 import { SortablePage } from "./sortable-page";
 import { ExportGuide } from "./export-guide";
 import { PageToc } from "./page-toc";
-import { detectUploadKind, safeDisplayName, sanitizeDocumentText, withTimeout, PdfTextItem, recognizedTextLines, analyzePageLayout, tokensFromPdfTextItems, postProcessOcrLine, repairFragmentedOcrWords, scoreOcrCandidate, cleanOcrPageLines, mergeDocumentParagraphs, isSuspiciousOcrLine, selectBestOcrLines, deduplicateOcrLines } from "@/workflow/shared/core";
+import { detectUploadKind, safeDisplayName, sanitizeDocumentText, withTimeout, PdfTextItem, recognizedTextLines, analyzePageLayout, tokensFromPdfTextItems, postProcessOcrLine, repairFragmentedOcrWords, scoreOcrCandidate, cleanOcrPageLines, mergeDocumentParagraphs, isSuspiciousOcrLine, selectBestOcrLines, deduplicateOcrLines, structureOcrDocumentLines } from "@/workflow/shared/core";
 import type { PSM } from "tesseract.js";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -431,11 +431,19 @@ export function ScanWorkspace() {
         const pageLines = deduplicateOcrLines(cleanOcrPageLines(cleanedLines.length ? cleanedLines : recognizedTextLines(best.data.text)));
         const contentText = pageLines.length ? pageLines.join("\n") : (repairedWords.length ? repairedWords.map((word) => word.text).join(" ") : best.data.text);
         const contentLines = contentText.split(/\r?\n/).map((line) => sanitizeDocumentText(line)).filter(Boolean);
-        const contentParagraphs = contentLines.length ? [contentLines.join(" ")] : recognizedTextLines(best.data.text);
-        contentParagraphs.forEach((line, lineIndex) => paragraphs.push(new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { after: 120, line: 276, lineRule: "auto" },
-          children: [new TextRun({ text: sanitizeDocumentText(line), size: lineIndex === 0 ? 24 : 20, bold: lineIndex === 0, language: { value: "en-US" } })],
+        const structuredParagraphs = structureOcrDocumentLines(contentLines.length ? contentLines : recognizedTextLines(best.data.text));
+        structuredParagraphs.forEach((block) => paragraphs.push(new Paragraph({
+          heading: block.kind === "title" ? "Heading1" : block.kind === "heading" ? "Heading2" : undefined,
+          alignment: block.kind === "paragraph" ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
+          indent: block.kind === "list-item" ? { left: 360, hanging: 240 } : undefined,
+          spacing: { before: block.kind === "heading" ? 180 : 0, after: block.kind === "title" ? 180 : block.kind === "heading" ? 100 : 80, line: 276, lineRule: "auto" },
+          children: [new TextRun({
+            text: sanitizeDocumentText(block.text),
+            size: block.kind === "title" ? 28 : block.kind === "heading" ? 22 : 20,
+            bold: block.kind === "title" || block.kind === "heading",
+            color: block.kind === "title" ? "1F4E79" : "000000",
+            language: { value: "en-US" },
+          })],
         })));
         releaseCanvas(grayscale);
         setProgress(Math.round((index + 1) / exportPages.length * 100));
