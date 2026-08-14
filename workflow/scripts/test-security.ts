@@ -42,7 +42,7 @@ async function runTests() {
   assert(jpgResult === "jpeg", "JPG magic bytes (FF D8 FF)", `Got ${jpgResult}`);
 
   // PNG magic bytes (89 50 4E 47 0D 0A 1A 0A)
-  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+  const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01]);
   const pngFile = new File([pngBytes], "graphic.png", { type: "image/png" });
   const pngResult = await detectUploadKind(pngFile);
   assert(pngResult === "png", "PNG magic bytes (89 50 4E 47 0D 0A 1A 0A)", `Got ${pngResult}`);
@@ -69,6 +69,12 @@ async function runTests() {
   const pdfOffsetFile = new File([pdfOffsetBytes], "doc_offset.pdf", { type: "application/pdf" });
   const pdfOffsetResult = await detectUploadKind(pdfOffsetFile);
   assert(pdfOffsetResult === "pdf", "PDF magic bytes (%PDF- with header offset)", `Got ${pdfOffsetResult}`);
+
+  const fakePng = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x48, 0x54, 0x4d, 0x4c])], "fake.png", { type: "image/png" });
+  assert(await detectUploadKind(fakePng) === null, "Bare PNG signature without IHDR is rejected");
+
+  const fakePdf = new File([new TextEncoder().encode("notes %PDF-not-a-version")], "fake.pdf", { type: "application/pdf" });
+  assert(await detectUploadKind(fakePdf) === null, "Embedded PDF marker without a version is rejected");
 
   // File extension spoofing 1: HTML file disguised as .jpg
   const htmlContent = new TextEncoder().encode("<!DOCTYPE html><html><body><script>alert('XSS')</script></body></html>");
@@ -111,6 +117,9 @@ async function runTests() {
   // Whitespace and control chars only
   const blankNameResult = safeDisplayName("  \u0000\u0007\u001F  ");
   assert(blankNameResult === "Tài liệu không tên", "Whitespace/control-only filename returns fallback", `Got "${blankNameResult}"`);
+
+  const spoofedDirectionName = safeDisplayName("invoice\u202Egpj.exe");
+  assert(spoofedDirectionName === "invoicegpj.exe", "Bidirectional filename controls are stripped", `Got "${spoofedDirectionName}"`);
 
   // Long filename (> 200 characters)
   const longNameInput = "A".repeat(250) + ".pdf";

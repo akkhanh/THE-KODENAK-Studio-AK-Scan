@@ -175,11 +175,14 @@ export function ScanWorkspace() {
     let sessionPixels = pages.reduce((total, page) => total + (page.sourcePixels ?? 0), 0);
     const next: ScanPage[] = [];
     const errors: string[] = [];
+    let importedPdf = false;
     let importedDocumentPdf = false;
     for (const file of candidates.slice(0, room)) {
       try {
         const kind = await detectUploadKind(file);
+        if (!kind) throw new Error(`${safeDisplayName(file.name)}: định dạng hoặc nội dung file không hợp lệ.`);
         const inspectedPages = kind === "pdf" ? await inspectPdf(file, room - next.length) : [{ ...(await inspectFile(file)), name: safeDisplayName(file.name) }];
+        if (kind === "pdf") importedPdf = true;
         if (kind === "pdf" && inspectedPages.some((page) => Boolean(page.embeddedText))) importedDocumentPdf = true;
         const incomingPixels = inspectedPages.reduce((total, inspected) => total + inspected.width * inspected.height, 0);
         if (sessionPixels + incomingPixels > MAX_SESSION_PIXELS) {
@@ -204,7 +207,15 @@ export function ScanWorkspace() {
     } else if (!hasDocumentPdf && pages.length === 0) {
       setExportOptions((current) => ({ ...current, format: "pdf", searchable: false }));
     }
-    setMessage(candidates.length > room ? "Đã đạt giới hạn 20 trang." : errors.length ? `${next.length} ảnh hợp lệ; ${errors[0]}` : importedDocumentPdf ? "Đã nhận diện PDF tài liệu · mặc định chuyển thẳng sang Word." : "Đã nhận diện PDF scan · mặc định đóng gói lại thành PDF.");
+    setMessage(candidates.length > room
+      ? "Đã đạt giới hạn 20 trang."
+      : errors.length
+        ? `${next.length} trang hợp lệ; ${errors[0]}`
+        : importedDocumentPdf
+          ? "Đã nhận diện PDF tài liệu · mặc định chuyển thẳng sang Word."
+          : importedPdf
+            ? "Đã nhận diện PDF scan · mặc định đóng gói lại thành PDF."
+            : `Đã thêm ${next.length} ảnh · sẵn sàng chỉnh và xuất PDF.`);
     setImporting(false);
   }
 

@@ -60,7 +60,7 @@ export function HomeUpload({ dragging, importing, fileRef, pdfRef, cameraRef, on
 
         <p className="upload-privacy-note" role="note">
           <LockKeyhole size={17} aria-hidden="true" />
-          <span><strong>Bảo mật tuyệt đối:</strong> Ảnh và PDF được xử lý hoàn toàn trên thiết bị của bạn, không tải lên máy chủ.</span>
+          <span><strong>Xử lý cục bộ:</strong> Ảnh và PDF được xử lý trên thiết bị của bạn; AK Scan không tải tài liệu lên máy chủ.</span>
         </p>
 
         <div className="trust-stats-bar">

@@ -13,8 +13,9 @@
     "test:ocr": "tsx workflow/scripts/test-ocr.ts",
     "test:pdf-to-word": "tsx workflow/scripts/test-pdf-to-word-contract.ts",
     "test:pdf-document": "tsx workflow/scripts/test-pdf-document.ts",
-    "test": "npm run test:scan && npm run test:ocr && npm run test:ocr-quality && npm run test:pdf-document && npm run test:pdf-to-word",
-    "security:audit": "npm audit --audit-level=high"
+    "test:security": "tsx workflow/scripts/test-security.ts",
+    "test": "npm run test:scan && npm run test:security && npm run test:ocr && npm run test:ocr-quality && npm run test:pdf-document && npm run test:pdf-to-word",
+    "security:audit": "npm audit --audit-level=moderate"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

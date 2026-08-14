@@ -23,13 +23,36 @@ AK Scan là ứng dụng client-only: ảnh, PDF và nội dung OCR được x�
 
 ## Riêng tư và bảo mật
 
-- Không cần tài khoản hoặc backend.
-- Tài liệu chỉ nằm trong bộ nhớ phiên trình duyệt của người dùng.
-- Tesseract, WASM, dữ liệu ngôn ngữ và worker được đóng gói nội bộ; đường dẫn OCR tôn trọng `basePath` khi deploy GitHub Pages.
-- Kiểm tra magic bytes cho JPG, PNG, WebP và PDF; làm sạch ký tự điều khiển trước khi tạo PDF/DOCX.
-- Blob URL được thu hồi khi xóa trang hoặc đóng phiên.
+- **Xử lý cục bộ:** không có backend, API upload, database, tài khoản, cookie đăng nhập hoặc kho lưu tài liệu. Ảnh, PDF và OCR chỉ nằm trong bộ nhớ phiên trình duyệt.
+- **Không tin tên file:** hệ thống đọc magic bytes và kiểm tra thêm cấu trúc PNG `IHDR`, WebP `RIFF/WEBP` và PDF header có phiên bản; file rỗng, giả extension hoặc không giải mã được bị từ chối.
+- **Chống giả mạo tên file:** loại control character, ký tự Unicode Bidi/formatting ẩn, chuẩn hóa Unicode NFC và giới hạn tên hiển thị 160 ký tự.
+- **Giới hạn tài nguyên:** tối đa 15 MB/ảnh, 24 MP/ảnh, 40 MB/PDF, 20 trang và 160 triệu decoded pixel mỗi phiên; thao tác đọc/render có timeout và dọn Blob URL khi lỗi hoặc xóa phiên.
+- **Đầu ra an toàn:** text OCR/PDF được loại null byte, XML-invalid control character và lone surrogate trước khi tạo PDF/DOCX; tên file tải xuống do ứng dụng sinh, không dùng đường dẫn từ input.
+- **Tài nguyên nội bộ:** Tesseract worker, PDF worker, WASM, font và dữ liệu ngôn ngữ được phục vụ cùng origin; bundle production có SRI SHA-384.
+- **CSP và HTTPS:** production dùng HTTPS/HSTS; CSP giới hạn script, style, ảnh, font, worker, kết nối, object và form action. CSP vẫn cần `unsafe-inline`/`wasm-unsafe-eval` để Next.js static export và OCR/WASM hoạt động.
+- **Không lưu secret phía client:** mã ứng dụng không dùng `localStorage`, `sessionStorage` hay token/API key; kiểm tra source hiện không phát hiện secret được commit.
 
-> Ảnh và PDF được xử lý hoàn toàn trên thiết bị của bạn, không tải lên máy chủ.
+> AK Scan không tải nội dung tài liệu lên máy chủ. Trình duyệt, extension đã cài và thư mục Downloads vẫn thuộc phạm vi bảo mật của thiết bị người dùng.
+
+### OWASP Top 10
+
+- **Broken Access Control, Authentication, CSRF, SSRF, SQL/command injection:** hiện không áp dụng vì AK Scan không có server, API, session, tài khoản hoặc database. Nếu kiến trúc này thay đổi, các kiểm soát trên phải được thiết kế và audit lại từ đầu.
+- **Injection/XSS:** React escape nội dung theo mặc định; source ứng dụng không dùng `dangerouslySetInnerHTML`, `innerHTML`, `eval` hoặc `new Function`. Text đưa vào tài liệu đầu ra được làm sạch riêng.
+- **Security Misconfiguration:** Next.js server đã khai báo CSP, `X-Frame-Options`, `nosniff`, Referrer Policy, Permissions Policy, COOP và HSTS. GitHub Pages không áp dụng custom response headers, nên clickjacking protection đầy đủ cần hosting hỗ trợ header như Cloudflare Pages, Vercel hoặc server riêng.
+- **Vulnerable and Outdated Components:** CI chạy `npm audit --audit-level=moderate`; Dependabot theo dõi npm và GitHub Actions hằng tuần.
+- **Software and Data Integrity:** dependency cài bằng `npm ci` từ lockfile, production bundle dùng SRI, workflow build chỉ có quyền đọc source và quyền deploy chỉ cấp cho job deploy.
+- **Resource Consumption:** quota, timeout và cleanup giảm nguy cơ treo tab; file được chế tạo đặc biệt vẫn có thể làm chậm thiết bị trong giới hạn local nhưng không tạo DoS lên máy chủ AK Scan.
+
+### Kiểm thử bảo mật tự động
+
+`npm test` bao gồm bộ regression bảo mật kiểm tra file giả mạo, header ảnh/PDF không hợp lệ, Unicode Bidi trong filename, text XML không an toàn, giới hạn độ dài và timeout. GitHub Actions chạy dependency audit, lint, typecheck, toàn bộ test và production build trước khi deploy.
+
+```bash
+npm run test:security
+npm run security:audit
+```
+
+Dependabot được cấu hình tại `.github/dependabot.yml`. Tài liệu chi tiết và các rủi ro còn lại nằm trong [06-SECURITY-PRIVACY.md](06-SECURITY-PRIVACY.md).
 
 ## Sử dụng
 
@@ -46,8 +69,8 @@ AK Scan là ứng dụng client-only: ảnh, PDF và nội dung OCR được x�
 Yêu cầu Node.js 20+ và npm.
 
 ```bash
-git clone https://github.com/akkhanh/THE-KODENAK-Studio-AK-Scan.git
-cd THE-KODENAK-Studio-AK-Scan
+git clone https://github.com/akkhanh/akscan.git
+cd akscan
 npm ci
 npm run dev
 ```
@@ -63,7 +86,7 @@ npm test
 npm run build
 ```
 
-GitHub Actions chạy lint, typecheck và toàn bộ test trước khi build static site.
+GitHub Actions chạy dependency audit, lint, typecheck, toàn bộ test (bao gồm security regression) và build static site.
 
 ## Deploy GitHub Pages
 
@@ -72,7 +95,7 @@ Repository đã có workflow tại `.github/workflows/deploy-pages.yml`.
 1. Vào **Settings → Pages** và chọn **GitHub Actions**.
 2. Push lên nhánh `main` hoặc chạy workflow thủ công.
 3. Với repository này, URL dự kiến là:
-   `https://akkhanh.github.io/THE-KODENAK-Studio-AK-Scan/`
+   `https://akkhanh.github.io/akscan/`
 
 Nếu dùng tên miền riêng, cấu hình `NEXT_PUBLIC_SITE_URL` và thêm `public/CNAME` chứa tên miền chính thức.
 
