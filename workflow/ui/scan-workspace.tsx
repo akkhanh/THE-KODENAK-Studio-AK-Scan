@@ -89,6 +89,7 @@ export function ScanWorkspace() {
   const [pages, setPages] = useState<ScanPage[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [editingCorners, setEditingCorners] = useState(false);
@@ -125,7 +126,7 @@ export function ScanWorkspace() {
     if (await detectUploadKind(file) !== "pdf") throw new Error(`${name}: nội dung file không phải PDF hợp lệ.`);
     if (!file.size || file.size > MAX_PDF_BYTES) throw new Error(`${name}: PDF phải nhỏ hơn 40 MB.`);
     const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = `${ocrAssetBasePath}/pdf.worker.min.mjs`;
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
     const pdf = await withTimeout(loadingTask.promise, 30_000, `${name}: PDF mất quá nhiều thời gian để mở.`).catch(async (error) => { await loadingTask.destroy(); throw error; });
     const results: Array<{ url: string; width: number; height: number; name: string; embeddedText?: string; embeddedTextItems?: PdfTextItem[]; pdfKind?: "document" | "scan" }> = [];
@@ -165,8 +166,11 @@ export function ScanWorkspace() {
   }
 
   async function addFiles(files: FileList | File[]) {
-    if (exporting) return;
+    if (exporting || importing) return;
     const candidates = Array.from(files);
+    if (!candidates.length) return;
+    setImporting(true);
+    setMessage(candidates.some((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) ? "Đang mở và dựng các trang PDF…" : "Đang mở ảnh…");
     const room = Math.max(0, 20 - pages.length);
     let sessionPixels = pages.reduce((total, page) => total + (page.sourcePixels ?? 0), 0);
     const next: ScanPage[] = [];
@@ -191,7 +195,7 @@ export function ScanWorkspace() {
       }
       catch (error) { errors.push(error instanceof Error ? error.message : `${file.name}: không thể đọc ảnh.`); }
     }
-    if (!next.length) { setMessage(errors[0] ?? "Hãy chọn ảnh JPG, PNG, WebP hoặc PDF hợp lệ."); return; }
+    if (!next.length) { setMessage(errors[0] ?? "Hãy chọn ảnh JPG, PNG, WebP hoặc PDF hợp lệ."); setImporting(false); return; }
     setPages((current) => [...current, ...next]);
     setActiveId((current) => current || next[0].id);
     const hasDocumentPdf = importedDocumentPdf || pages.some((page) => Boolean(page.embeddedText));
@@ -201,6 +205,7 @@ export function ScanWorkspace() {
       setExportOptions((current) => ({ ...current, format: "pdf", searchable: false }));
     }
     setMessage(candidates.length > room ? "Đã đạt giới hạn 20 trang." : errors.length ? `${next.length} ảnh hợp lệ; ${errors[0]}` : importedDocumentPdf ? "Đã nhận diện PDF tài liệu · mặc định chuyển thẳng sang Word." : "Đã nhận diện PDF scan · mặc định đóng gói lại thành PDF.");
+    setImporting(false);
   }
 
   function updateActive(patch: Partial<ScanPage>) { if (active && !exporting) setPages((list) => list.map((page) => page.id === active.id ? { ...page, ...patch } : page)); }
@@ -505,7 +510,7 @@ export function ScanWorkspace() {
       <PageToc />
 
       {!pages.length ? (
-        <HomeUpload dragging={dragging} fileRef={fileRef} pdfRef={pdfRef} cameraRef={cameraRef} onDraggingChange={setDragging} onFiles={(files) => void addFiles(files)} />
+        <HomeUpload dragging={dragging} importing={importing} fileRef={fileRef} pdfRef={pdfRef} cameraRef={cameraRef} onDraggingChange={setDragging} onFiles={(files) => void addFiles(files)} />
       ) : (
         <section id="workspace" className={`workbench ${exporting ? "exporting" : ""}`} aria-label="Bàn chỉnh sửa tài liệu" aria-busy={exporting}>
           <aside className="pages-panel">

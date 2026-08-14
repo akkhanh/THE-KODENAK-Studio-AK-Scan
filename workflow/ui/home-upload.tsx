@@ -3,6 +3,7 @@ import { Camera, FileText, LockKeyhole, ScanSearch, Upload } from "lucide-react"
 
 type HomeUploadProps = {
   dragging: boolean;
+  importing: boolean;
   fileRef: RefObject<HTMLInputElement | null>;
   pdfRef: RefObject<HTMLInputElement | null>;
   cameraRef: RefObject<HTMLInputElement | null>;
@@ -10,7 +11,7 @@ type HomeUploadProps = {
   onFiles: (files: FileList) => void;
 };
 
-export function HomeUpload({ dragging, fileRef, pdfRef, cameraRef, onDraggingChange, onFiles }: HomeUploadProps) {
+export function HomeUpload({ dragging, importing, fileRef, pdfRef, cameraRef, onDraggingChange, onFiles }: HomeUploadProps) {
   function resetAndAdd(input: HTMLInputElement) {
     if (input.files) onFiles(input.files);
     input.value = "";
@@ -47,9 +48,9 @@ export function HomeUpload({ dragging, fileRef, pdfRef, cameraRef, onDraggingCha
           <p>Hoặc chọn file từ thiết bị. Hỗ trợ <b>JPG, PNG, WebP, PDF</b>. Tối đa 15MB/ảnh.</p>
 
           <div className="upload-actions-grid">
-            <button className="button primary" onClick={() => fileRef.current?.click()}><Upload size={18} /><span>Chọn File Ảnh</span></button>
-            <button className="button secondary" onClick={() => pdfRef.current?.click()}><FileText size={18} /><span>Chọn File PDF</span></button>
-            <button className="button secondary" onClick={() => cameraRef.current?.click()}><Camera size={18} /><span>Mở Camera</span></button>
+            <button className="button primary" disabled={importing} onClick={() => fileRef.current?.click()}><Upload size={18} /><span>Chọn File Ảnh</span></button>
+            <button className="button secondary" disabled={importing} onClick={() => pdfRef.current?.click()}><FileText size={18} /><span>{importing ? "Đang mở PDF…" : "Chọn File PDF"}</span></button>
+            <button className="button secondary" disabled={importing} onClick={() => cameraRef.current?.click()}><Camera size={18} /><span>Mở Camera</span></button>
           </div>
 
           <input ref={fileRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => resetAndAdd(event.currentTarget)} />
